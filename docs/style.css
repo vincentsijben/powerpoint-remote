@@ -36,6 +36,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 
 #app {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* never wider than the screen, even with long names */
   grid-template-rows: auto 1fr auto;
   height: 100vh;
   height: 100dvh;
@@ -58,7 +59,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: none;
   color: var(--muted); padding: 6px 4px; text-align: left; font-size: 15px;
 }
-.deck #deckName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck #deckName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deck .caret { color: var(--text); flex: none; }
 .deck:disabled { cursor: default; }
 .slidenum { font-size: 22px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }

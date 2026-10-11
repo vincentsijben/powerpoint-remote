@@ -98,6 +98,7 @@ Next, scan the **QR code** in the Mac menu bar with the iPad camera, or type the
 - After you edit slides, tap **⚙︎ › Reload slides from PowerPoint** to refresh the images. Notes update on their own.
 - With animations, **Next** steps through the animation builds first, just like a clicker.
 - Hidden slides are labelled and skipped in the "next" preview during the show.
+- Several devices can be connected at once (for example an iPad and a phone). Each one gets its own slide images, quality and format. Anything that changes PowerPoint (next/previous, jump, black screen, *Reload slides*, laser/pen, video) is shared, so all connected devices follow along.
 
 ## Troubleshooting
 
@@ -106,6 +107,7 @@ Next, scan the **QR code** in the Mac menu bar with the iPad camera, or type the
 | "PPT Remote" doesn't show up in Bluefy | Check the menu bar says *Bluetooth: ready*. Turn Bluetooth off and on again on the iPad. Quit and reopen the helper. |
 | No slide images, only numbers | The menu shows *loading…* while slides export. Try **Reload Slides from PowerPoint** in the menu. Check *⚙︎ › Activity log* on the iPad or phone. |
 | Jumping to a slide shows all slides in between | Turn on Accessibility for PPT Remote (menu › *Enable Direct Slide Jumps…*). The menu then says *Direct slide jumps: on*. |
+| Slide images stay empty on one device | Open *⚙︎ › Activity log*. If the device can't display a format, it says *switching to JPEG* and fetches the slides again by itself. |
 | Old slide images after editing | Tap **⚙︎ › Reload slides from PowerPoint**. If that doesn't help, use *Delete stored slides*. |
 | PowerPoint doesn't react | Check *System Settings › Privacy & Security › Automation › PPT Remote › Microsoft PowerPoint* is on. |
 | Wrong PIN | The PIN is in the Mac menu. *Generate New PIN* logs out all remotes. |

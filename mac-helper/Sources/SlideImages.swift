@@ -147,7 +147,10 @@ final class SlideImages {
     private static func render(_ page: PDFPage, width: Int) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let height = Int((Double(width) * Double(bounds.height) / Double(bounds.width)).rounded())
+        // Even sizes: large AVIF/HEIC images are stored as tile grids, and grids with an odd width or height
+        // are invalid (MIAF 7.3.11.4.2) - Chrome on Android refuses to show them.
+        let width = width & ~1
+        let height = Int((Double(width) * Double(bounds.height) / Double(bounds.width) / 2).rounded()) * 2
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }

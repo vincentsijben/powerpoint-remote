@@ -6,6 +6,8 @@ const SlideStore = {
   DB: 'pptremote',
   STORE: 'slides',
   MAX_BYTES: 150 * 1024 * 1024,
+  /** Bumped when the Mac's images change in a way that makes stored ones unusable (r2: even-sized AVIF grids). */
+  REV: 'r2',
   db: null,
   failed: false,
 
@@ -62,7 +64,7 @@ const SlideStore = {
         let rec = await this.req(os.get(`${key}|${variant}`));
         if (!rec && !strict) {
           const all = await this.req(os.index('key').getAll(key));
-          rec = all.sort((a, b) => b.size - a.size)[0] || null;
+          rec = all.filter((r) => String(r.variant).endsWith(`-${this.REV}`)).sort((a, b) => b.size - a.size)[0] || null;
         }
         if (rec) {
           rec.usedAt = Date.now();
@@ -111,6 +113,24 @@ const SlideStore = {
       out.decks = names.size;
     } catch { /* unavailable */ }
     return out;
+  },
+
+  /** Removes slides stored by older versions (e.g. AVIF files some browsers can't show). */
+  async migrate() {
+    let removed = 0;
+    try {
+      await this.tx('readwrite', (os) => new Promise((resolve) => {
+        const cur = os.openCursor();
+        cur.onsuccess = () => {
+          const c = cur.result;
+          if (!c) { resolve(); return; }
+          if (!String(c.value.variant).endsWith(`-${this.REV}`)) { c.delete(); removed++; }
+          c.continue();
+        };
+        cur.onerror = () => resolve();
+      }));
+    } catch { /* unavailable */ }
+    if (removed) Activity.log(`Removed ${removed} slides stored by an older version`);
   },
 
   async clear() {

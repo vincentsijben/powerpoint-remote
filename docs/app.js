@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -537,7 +537,8 @@ const App = {
   },
 
   variant(fmt) {
-    return this.transport && this.transport.kind === 'network' ? `${fmt}-net` : `${fmt}-${prefs.quality}`;
+    const q = this.transport && this.transport.kind === 'network' ? 'net' : prefs.quality;
+    return `${fmt}-${q}-${SlideStore.REV}`;
   },
 
   /** Fills `images` with slides already stored on this device. */
@@ -583,9 +584,15 @@ const App = {
     const ms = Math.max(1, now - start);
     this.lastImageAt = now;
     const mime = `image/${header.fmt || 'jpeg'}`;
+    const blob = new Blob([bytes], { type: mime });
+    if (!(await canDecode(blob))) {
+      this.imageFormatFailed(header.fmt, slide);
+      return;
+    }
+    if (header.deck !== this.deck) return;
     const old = this.images.get(slide);
     if (old) URL.revokeObjectURL(old);
-    this.images.set(slide, URL.createObjectURL(new Blob([bytes], { type: mime })));
+    this.images.set(slide, URL.createObjectURL(blob));
     this.imageInfo.set(slide, { source: 'download', size: bytes.length, fmt: header.fmt });
     this.inflight.delete(slide);
     this.requestedAt.delete(slide);
@@ -598,13 +605,41 @@ const App = {
       ` (${fmtBytes(bytes.length / (ms / 1000))}/s, Mac encode ${header.enc || 0} ms)`);
 
     SlideStore.put({
-      key: header.key, variant: `${header.fmt}-${header.q}`, data: bytes.slice().buffer, mime,
+      key: header.key, variant: `${header.fmt}-${header.q}-${SlideStore.REV}`, data: bytes.slice().buffer, mime,
       deck: this.deck, name: this.st ? this.st.name : '', slide,
     });
 
     this.renderSlides();
     if (!$('gridView').classList.contains('hidden')) this.renderGrid();
     if (this.inflight.size === 0) this.scheduleImages(false);
+  },
+
+  /** The browser received an image it can't show: stop using that format and fetch the slides again. */
+  imageFormatFailed(fmt, slide) {
+    this.inflight.delete(slide);
+    if (fmt && fmt !== 'jpeg' && !this.formats.includes(fmt)) {
+      // Requested before we switched formats: it will be fetched again in the new format.
+      this.scheduleImages(false);
+      return;
+    }
+    if (!fmt || fmt === 'jpeg') {
+      Activity.log(`Slide ${slide}: this device could not display the image`, 'error');
+      this.failed.add(slide);
+      this.scheduleImages(false);
+      return;
+    }
+    this.formats = this.formats.filter((f) => f !== fmt);
+    Activity.log(`This device can't display the Mac's ${fmt.toUpperCase()} images; switching to ${this.formats[0].toUpperCase()}`, 'error');
+    if (this.inflight.size) this.send('imgclear');
+    this.resetDeck(this.deck);
+    this.deckInfo = null;
+    if (this.transport && this.transport.kind === 'bluetooth') {
+      this.send(`fmt ${this.formats.join(',')}`);
+      this.send('hello');
+    } else if (this.transport) {
+      this.transport.fetchAllNotes();
+      this.transport.fetchDeck();
+    }
   },
 
   // --- images ---------------------------------------------------------------
@@ -682,9 +717,11 @@ const App = {
       this.netFetching++;
       this.transport.fetchImage(next)
         .then((r) => {
-          if (deck !== this.deck) return;
-          if (r) this.onImage(r.header, r.bytes, true);
-          else { this.failed.add(next); Activity.log(`Slide ${next}: no image available`); }
+          if (deck !== this.deck) return undefined;
+          if (r) return this.onImage(r.header, r.bytes, true); // wait for the decode check before "done"
+          this.failed.add(next);
+          Activity.log(`Slide ${next}: no image available`);
+          return undefined;
         })
         .catch((e) => Activity.log(`Slide ${next}: download failed (${e.message})`, 'error'))
         .finally(() => {
@@ -1144,6 +1181,18 @@ const App = {
   },
 };
 
+/** Checks that the browser can really decode an image (e.g. some AVIF variants fail on Android). */
+async function canDecode(blob) {
+  if (typeof createImageBitmap !== 'function') return true;
+  try {
+    const bmp = await createImageBitmap(blob);
+    if (bmp.close) bmp.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Formatted notes
 // ---------------------------------------------------------------------------
@@ -1397,6 +1446,7 @@ function init() {
   }
 
   Activity.log(`PPT Remote v${APP_VERSION} started`);
+  SlideStore.migrate();
   ImageFormats.detect().then((list) => {
     App.formats = list;
     Activity.log(`This browser can show: ${list.join(', ').toUpperCase()}`);
