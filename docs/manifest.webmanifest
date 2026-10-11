@@ -1,0 +1,10 @@
+{
+  "name": "PPT Remote",
+  "short_name": "PPT Remote",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111418",
+  "theme_color": "#111418",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

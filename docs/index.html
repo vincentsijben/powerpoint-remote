@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#111418">
+  <title>PPT Remote</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <button id="connBtn" class="chip" title="Connection">
+        <span id="connDot" class="dot off"></span><span id="connLabel">Not connected</span>
+      </button>
+      <div id="deckName" class="deck"></div>
+      <div id="slideNum" class="slidenum">–</div>
+      <button id="timer" class="chip mono" title="Tap: start/pause · Hold: reset">00:00</button>
+      <div id="clock" class="mono clock"></div>
+      <button id="settingsBtn" class="iconbtn" title="Settings" aria-label="Settings">⚙︎</button>
+    </header>
+
+    <main id="main">
+      <section id="slides">
+        <div id="current" class="slidebox">
+          <img id="currentImg" alt="">
+          <div id="currentMsg" class="slidemsg"></div>
+          <div id="blackBadge" class="badge hidden">Screen is black</div>
+        </div>
+        <div id="toolrow">
+          <div id="next" class="slidebox small">
+            <img id="nextImg" alt="">
+            <div id="nextMsg" class="slidemsg"></div>
+            <span class="tag">Next</span>
+          </div>
+          <div id="tools">
+            <button id="startBtn" class="tool">▶︎ Start</button>
+            <button id="startHereBtn" class="tool">▶︎ From here</button>
+            <button id="endBtn" class="tool">■ End show</button>
+            <button id="blackBtn" class="tool">◐ Black</button>
+            <button id="gridBtn" class="tool">▦ Slides</button>
+          </div>
+        </div>
+      </section>
+      <section id="notesPane">
+        <div id="notesHead">
+          <span>Notes</span>
+          <span class="spacer"></span>
+          <button id="fontDown" class="iconbtn small" aria-label="Smaller text">A−</button>
+          <button id="fontUp" class="iconbtn small" aria-label="Larger text">A+</button>
+        </div>
+        <div id="notes" class="notes"></div>
+      </section>
+    </main>
+
+    <footer id="navbar">
+      <button id="prevBtn" class="nav prev" aria-label="Previous slide">‹ Prev</button>
+      <button id="nextBtn" class="nav next" aria-label="Next slide">Next ›</button>
+    </footer>
+  </div>
+
+  <!-- Connect screen -->
+  <div id="connectView" class="overlay">
+    <div class="panel">
+      <h1>PPT Remote</h1>
+      <p class="sub">Control PowerPoint on your Mac and read your speaker notes.</p>
+      <button id="bleConnectBtn" class="big primary">Connect via Bluetooth</button>
+      <p id="bleUnavailable" class="hint hidden">
+        Bluetooth isn’t available in this browser. On iPad, install the free
+        <b>Bluefy – Web BLE Browser</b> from the App Store and open this page in it:<br>
+        <code id="pageUrl"></code>
+      </p>
+      <button id="netConnectBtn" class="big hidden">Connect via network</button>
+      <p id="netHint" class="hint hidden">Network mode needs the iPad and Mac on the same Wi-Fi or hotspot.
+        Scan the QR code in the Mac menu bar (PPT Remote icon) to open the network version.</p>
+      <p id="connectError" class="error"></p>
+    </div>
+  </div>
+
+  <!-- PIN prompt -->
+  <div id="pinView" class="overlay hidden">
+    <div class="panel">
+      <h2>Enter PIN</h2>
+      <p class="sub">The 4-digit PIN is shown in the PPT Remote menu on your Mac.</p>
+      <input id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••">
+      <p id="pinError" class="error"></p>
+      <button id="pinOk" class="big primary">OK</button>
+      <button id="pinCancel" class="big">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Slide grid -->
+  <div id="gridView" class="overlay hidden">
+    <div class="panel wide">
+      <div class="panelhead"><h2>Go to slide</h2><button id="gridClose" class="iconbtn">✕</button></div>
+      <div id="grid"></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settingsView" class="overlay hidden">
+    <div class="panel">
+      <div class="panelhead"><h2>Settings</h2><button id="settingsClose" class="iconbtn">✕</button></div>
+      <label class="row">Bluetooth image quality
+        <select id="qualitySel">
+          <option value="low">Low (fastest)</option>
+          <option value="med">Medium</option>
+          <option value="high">High (slowest)</option>
+        </select>
+      </label>
+      <label class="row"><input type="checkbox" id="swipeChk"> Swipe on slide to change slides</label>
+      <label class="row"><input type="checkbox" id="autoTimerChk"> Start timer when the show starts</label>
+      <button id="reloadBtn" class="big">Reload slides from PowerPoint</button>
+      <button id="changePinBtn" class="big">Change PIN</button>
+      <button id="disconnectBtn" class="big danger">Disconnect</button>
+      <p class="hint">Tip: set iPad <i>Settings › Display › Auto-Lock</i> to “Never” while presenting.</p>
+      <p id="debugInfo" class="hint mono"></p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="protocol.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

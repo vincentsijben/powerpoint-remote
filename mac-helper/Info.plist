@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>PPT Remote</string>
+	<key>CFBundleDisplayName</key>
+	<string>PPT Remote</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.pptremote.helper</string>
+	<key>CFBundleExecutable</key>
+	<string>PPTRemote</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>PPT Remote uses Bluetooth so your iPad can control PowerPoint without Wi-Fi.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>PPT Remote controls Microsoft PowerPoint to change slides and read speaker notes.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>PPT Remote lets your iPad connect over the local network as a fallback.</string>
+</dict>
+</plist>
