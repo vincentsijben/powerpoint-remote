@@ -50,9 +50,11 @@ Tip: copy the app to `/Applications` and add it under *System Settings › Gener
 > Every rebuild changes the app's ad-hoc signature, so macOS may ask for Bluetooth/Automation permission again.
 > If a permission seems stuck, run: `tccutil reset BluetoothAlways local.pptremote.helper` and `tccutil reset AppleEvents local.pptremote.helper`.
 
-## 2. Put the web app online (one time)
+## 2. The web app (already online)
 
-Safari, Chrome, and every other iPad browser block Bluetooth for web pages. The free **Bluefy – Web BLE Browser** app (App Store) is the exception. Web Bluetooth also requires an `https://` page, so host the [docs/](docs/) folder for free on **GitHub Pages**:
+The iPad app is live at **https://vincentsijben.github.io/powerpoint-remote/**
+
+Safari, Chrome, and every other iPad browser block Bluetooth for web pages. The free **Bluefy – Web BLE Browser** app (App Store) is the exception. Web Bluetooth also requires an `https://` page, which is why the [docs/](docs/) folder is hosted on **GitHub Pages**. Every push to `main` updates the live app. To host your own copy instead:
 
 1. Create a GitHub repository (for example `powerpoint-remote`) and push this folder to it.
 2. On GitHub, go to *Settings › Pages*, choose **Deploy from a branch**, branch `main`, folder **/docs**, and save.
@@ -63,7 +65,7 @@ The iPad only needs internet the first time it loads the page (or after updates)
 ## 3. iPad: connect over Bluetooth
 
 1. Install **Bluefy – Web BLE Browser** from the App Store.
-2. Open your GitHub Pages URL in Bluefy.
+2. Open https://vincentsijben.github.io/powerpoint-remote/ in Bluefy.
 3. Tap **Connect via Bluetooth** and choose **PPT Remote**.
 4. Enter the PIN from the Mac menu bar. It is remembered after that.
 
