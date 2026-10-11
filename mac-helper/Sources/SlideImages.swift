@@ -66,6 +66,8 @@ final class SlideImages {
     private(set) var isLoaded = false
     /// Content key per slide (index 0 = slide 1); "" when the slide has no image (e.g. hidden & not exported).
     private(set) var keys: [String] = []
+    /// Width / height of the slides.
+    private(set) var aspect: CGFloat = 16.0 / 9.0
 
     /// Loads the PDF, maps pages to slides and computes a content key per slide.
     func load(pdfPath: String?, hidden: [Bool], completion: @escaping () -> Void) {
@@ -75,10 +77,12 @@ final class SlideImages {
             self.pageForSlide.removeAll()
             self.document = nil
             var keys = [String](repeating: "", count: hidden.count)
+            var aspect: CGFloat = 16.0 / 9.0
             if let path = pdfPath {
                 if let doc = PDFDocument(url: URL(fileURLWithPath: path)) {
                     self.document = doc
                     self.mapPages(doc: doc, hidden: hidden)
+                    if let b = doc.page(at: 0)?.bounds(for: .mediaBox), b.height > 0 { aspect = b.width / b.height }
                     let t = Date()
                     for (slide, page) in self.pageForSlide where slide >= 1 && slide <= keys.count {
                         if let p = doc.page(at: page) { keys[slide - 1] = Self.contentKey(p) }
@@ -92,6 +96,7 @@ final class SlideImages {
             DispatchQueue.main.async {
                 self.isLoaded = loaded
                 self.keys = keys
+                self.aspect = aspect
                 completion()
             }
         }

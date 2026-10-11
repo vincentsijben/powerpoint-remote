@@ -1,7 +1,7 @@
-/* PPT Remote – iPad web app. Talks to the Mac helper over Bluetooth (Web Bluetooth / Bluefy) or HTTP. */
+/* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -91,17 +91,19 @@ class BleTransport {
     }
   }
 
-  send(text) {
+  /** @param {boolean} fast  write without waiting for an acknowledgement (pointer moves) */
+  send(text, fast) {
     const bytes = new TextEncoder().encode(text);
-    // GATT operations must not overlap, so writes are chained.
+    // GATT operations must not overlap, so writes are chained (this also keeps pointer messages in order).
     this.writeChain = this.writeChain
       .then(() => {
         const c = this.cmdChar;
         if (!c || !this.device || !this.device.gatt.connected) {
-          Activity.log(`Not sent (not connected): ${text.startsWith('auth') ? 'auth' : text}`, 'error');
+          if (!fast) Activity.log(`Not sent (not connected): ${text.startsWith('auth') ? 'auth' : text}`, 'error');
           return undefined;
         }
         Activity.sent(bytes.length);
+        if (fast && c.writeValueWithoutResponse) return c.writeValueWithoutResponse(bytes);
         return c.writeValueWithResponse ? c.writeValueWithResponse(bytes) : c.writeValue(bytes);
       })
       .catch((err) => Activity.log(`Command "${text.split(' ')[0]}" failed: ${err && err.message}`, 'error'));
@@ -265,12 +267,17 @@ class HttpTransport {
   }
 
   send(text) {
-    const [c, n] = text.split(' ');
-    if (!Hub.navCommands.has(c)) return Promise.resolve();
+    const i = text.indexOf(' ');
+    const c = i < 0 ? text : text.slice(0, i);
+    const n = i < 0 ? '' : text.slice(i + 1);
+    if (!Hub.commands.has(c)) return Promise.resolve();
     const q = `c=${encodeURIComponent(c)}${n ? `&n=${encodeURIComponent(n)}` : ''}`;
     Activity.sent(q.length);
-    return fetch(`api/cmd?${q}`, { method: 'POST', headers: this.headers(), cache: 'no-store' })
+    // One at a time, so pointer strokes arrive in order.
+    this.chain = (this.chain || Promise.resolve())
+      .then(() => fetch(`api/cmd?${q}`, { method: 'POST', headers: this.headers(), cache: 'no-store' }))
       .catch((e) => Activity.log(`Command "${c}" failed: ${e.message}`, 'error'));
+    return this.chain;
   }
 
   disconnect() {
@@ -281,7 +288,8 @@ class HttpTransport {
 }
 
 const Hub = {
-  navCommands: new Set(['next', 'prev', 'first', 'last', 'goto', 'start', 'starthere', 'end', 'black', 'reload']),
+  commands: new Set(['next', 'prev', 'first', 'last', 'goto', 'start', 'starthere', 'end', 'black', 'reload',
+    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink']),
 };
 
 // ---------------------------------------------------------------------------
@@ -297,6 +305,10 @@ const App = {
   deck: '',
   deckInfo: null, // { deck, keys, fmt } from the Mac
   notes: {},
+  rich: {}, // slide -> formatted paragraphs
+  plist: [], // open presentations on the Mac
+  media: [], // video/audio on the current slide: { k, name, kind, st, pos, at }
+  inkSlides: new Map(), // slide -> strokes drawn from this device (for local display)
   images: new Map(), // slide -> object URL (current deck only)
   imageInfo: new Map(), // slide -> { source: 'store' | 'download', size, fmt }
   failed: new Set(),
@@ -446,6 +458,8 @@ const App = {
     this.inflight.clear();
     this.requestedAt.clear();
     this.notes = {};
+    this.rich = {};
+    this.inkSlides.clear();
     this.deck = deck;
     this.storeChecked = '';
     this.allDoneLogged = false;
@@ -466,6 +480,17 @@ const App = {
       Activity.log('Mac is exporting the slides…');
     }
     if (s.notes) for (const [k, v] of Object.entries(s.notes)) this.notes[k] = v;
+    if (s.rich) for (const [k, v] of Object.entries(s.rich)) this.rich[k] = v;
+    if (s.plist) {
+      const before = this.plist.map((x) => x.name).join('|');
+      this.plist = s.plist;
+      if (before !== s.plist.map((x) => x.name).join('|') && s.plist.length > 1) {
+        Activity.log(`Open presentations: ${s.plist.map((x) => x.name).join(', ')}`);
+      }
+    }
+    const now = Date.now();
+    this.media = (s.media || []).map((m) => ({ ...m, at: now }));
+    if (!s.showing) this.setTool(null, true);
     if (prev && !prev.images && s.images) this.failed.clear();
     if (s.showing && !(prev && prev.showing) && prefs.autoTimer && prev) Timer.restart();
 
@@ -479,6 +504,7 @@ const App = {
       this.pendingGoto = null;
     }
     this.st = s;
+    if (!s.ink) this.inkSlides.delete(s.index);
     this.render();
     if (newDeck && s.deck) this.requestDeckInfo();
     if (newDeck || indexChanged || (prev && !prev.images && s.images)) this.scheduleImages(true);
@@ -505,7 +531,7 @@ const App = {
     const fmtChanged = !this.deckInfo || this.deckInfo.fmt !== info.fmt;
     this.deckInfo = info;
     if (fmtChanged) {
-      Activity.log(`Image format: ${info.fmt.toUpperCase()} (iPad can show ${this.formats.join(', ').toUpperCase()}; Mac can make ${(info.macFormats || []).join(', ').toUpperCase()})`);
+      Activity.log(`Image format: ${info.fmt.toUpperCase()} (this device can show ${this.formats.join(', ').toUpperCase()}; Mac can make ${(info.macFormats || []).join(', ').toUpperCase()})`);
     }
     if (info.deck === this.deck && this.storeChecked !== info.deck && !this.storeLoading) this.loadFromStore(false);
   },
@@ -543,7 +569,7 @@ const App = {
     this.storeChecked = deck;
     Activity.stats.imagesFromStore += hits;
     if (checked) {
-      Activity.log(`Found ${hits} of ${checked} slides stored on this iPad (${fmtBytes(bytes)}, ${Date.now() - t} ms)`);
+      Activity.log(`Found ${hits} of ${checked} slides stored on this device (${fmtBytes(bytes)}, ${Date.now() - t} ms)`);
     }
     this.render();
     this.scheduleImages(true);
@@ -585,7 +611,7 @@ const App = {
 
   isHidden(i) { return !!(this.st && this.st.hidden && this.st.hidden.includes(i)); },
 
-  /** The slide the iPad shows: the target of a pending jump, otherwise PowerPoint's slide. */
+  /** The slide this device shows: the target of a pending jump, otherwise PowerPoint's slide. */
   shownIndex() {
     return this.pendingGoto ? this.pendingGoto.target : this.st ? this.st.index : 0;
   },
@@ -623,7 +649,7 @@ const App = {
     if (!missing.length) {
       if (!this.allDoneLogged && s.count) {
         this.allDoneLogged = true;
-        Activity.log(`All slides of this presentation are on the iPad`);
+        Activity.log('All slides of this presentation are on this device');
       }
       return;
     }
@@ -691,10 +717,22 @@ const App = {
     this.renderConn();
     const s = this.st;
     $('deckName').textContent = s && s.name ? s.name : '';
+    $('deckCaret').classList.toggle('hidden', !(s && s.pcount > 1));
+    $('deckBtn').disabled = !(s && s.pcount >= 1);
     $('slideNum').textContent = s && s.pres && s.count ? `${this.shownIndex()} / ${s.count}` : '–';
     this.renderSlides();
     this.renderNotes();
     this.renderTools();
+    this.renderSlideTools();
+    this.renderMedia();
+    this.renderInk();
+    $('sectionName').textContent = this.sectionOf(this.shownIndex()) || '';
+  },
+
+  sectionOf(i) {
+    const secs = (this.deckInfo && this.deckInfo.deck === this.deck && this.deckInfo.sections) || [];
+    const sec = secs.find((x) => i >= x.first && i < x.first + x.count);
+    return sec && secs.length > 1 ? sec.name : '';
   },
 
   setImg(img, msgEl, url, fallbackText, big) {
@@ -747,7 +785,11 @@ const App = {
     }
     const idx = this.shownIndex();
     const text = this.notes[String(idx)];
-    if (text === undefined) {
+    const rich = this.rich[String(idx)];
+    if (rich && rich.length) {
+      el.classList.remove('empty');
+      el.replaceChildren(renderRichNotes(rich));
+    } else if (text === undefined) {
       el.textContent = s.loading ? 'Loading notes…' : '…';
       el.classList.add('empty');
     } else if (!text) {
@@ -782,13 +824,22 @@ const App = {
     const grid = $('grid');
     grid.innerHTML = '';
     if (!s || !s.pres) return;
+    const secs = (this.deckInfo && this.deckInfo.deck === this.deck && this.deckInfo.sections) || [];
     for (let i = 1; i <= s.count; i++) {
+      const sec = secs.length > 1 && secs.find((x) => x.first === i);
+      if (sec) {
+        const h = document.createElement('div');
+        h.className = 'gsec';
+        h.textContent = sec.name;
+        grid.appendChild(h);
+      }
       const b = document.createElement('button');
       b.className = 'gcell' + (i === this.shownIndex() ? ' cur' : '') + (this.isHidden(i) ? ' hid' : '');
       const url = this.imageFor(i);
       if (url) {
         const img = document.createElement('img');
         img.src = url;
+        img.alt = `Slide ${i}`;
         b.appendChild(img);
       } else {
         const ph = document.createElement('div');
@@ -805,6 +856,262 @@ const App = {
         $('gridView').classList.add('hidden');
       });
       grid.appendChild(b);
+    }
+  },
+
+  // --- presentations ---------------------------------------------------------
+
+  openPresentations() {
+    const list = $('presList');
+    list.innerHTML = '';
+    const s = this.st;
+    const add = (label, sub, on, cmd) => {
+      const b = document.createElement('button');
+      b.className = 'presitem' + (on ? ' on' : '');
+      const t = document.createElement('span');
+      t.textContent = label;
+      b.appendChild(t);
+      if (sub) {
+        const d = document.createElement('small');
+        d.textContent = sub;
+        b.appendChild(d);
+      }
+      b.addEventListener('click', () => {
+        this.send(cmd);
+        $('presView').classList.add('hidden');
+        toast('Switching presentation…');
+      });
+      list.appendChild(b);
+    };
+    add('Automatic', 'Follow PowerPoint: the presentation in the slide show or in front', s && s.auto, 'use auto');
+    for (const p of this.plist) add(p.name, p.current ? 'Now controlled' : '', s && !s.auto && p.current, `use ${p.id}`);
+    $('presView').classList.remove('hidden');
+  },
+
+  // --- media -----------------------------------------------------------------
+
+  renderMedia() {
+    const box = $('mediaBars');
+    const s = this.st;
+    const items = s && s.showing ? this.media : [];
+    if (box.childElementCount !== items.length || box.dataset.key !== items.map((m) => m.k).join(',')) {
+      box.innerHTML = '';
+      box.dataset.key = items.map((m) => m.k).join(',');
+      for (const m of items) {
+        const bar = document.createElement('div');
+        bar.className = 'mediabar';
+        bar.dataset.k = m.k;
+        const mk = (cls, label, title, fn) => {
+          const b = document.createElement('button');
+          b.className = 'mbtn ' + cls;
+          b.textContent = label;
+          b.title = title;
+          b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+          bar.appendChild(b);
+          return b;
+        };
+        mk('play', '▶︎', 'Play / pause', () => {
+          const cur = this.media.find((x) => x.k === m.k);
+          this.send(`media ${cur && cur.st === 'playing' ? 'pause' : 'play'} ${m.k}`);
+        });
+        mk('', '⟲', 'From the start', () => { this.send(`media seek ${m.k} 0`); this.send(`media play ${m.k}`); });
+        mk('', '−10', 'Back 10 seconds', () => this.send(`media rel ${m.k} -10000`));
+        mk('', '+10', 'Forward 10 seconds', () => this.send(`media rel ${m.k} 10000`));
+        const info = document.createElement('span');
+        info.className = 'minfo';
+        bar.appendChild(info);
+        box.appendChild(bar);
+      }
+    }
+    this.tickMedia();
+  },
+
+  /** Updates play buttons and positions (the clock runs locally while playing). */
+  tickMedia() {
+    for (const bar of $('mediaBars').children) {
+      const m = this.media.find((x) => String(x.k) === bar.dataset.k);
+      if (!m) continue;
+      const pos = m.pos + (m.st === 'playing' ? Date.now() - m.at : 0);
+      bar.querySelector('.play').textContent = m.st === 'playing' ? '❚❚' : '▶︎';
+      const sec = Math.floor(pos / 1000);
+      const label = m.kind === 'sound' ? 'Audio' : 'Video';
+      bar.querySelector('.minfo').textContent = `${label} ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    }
+  },
+
+  // --- laser pointer & pen ---------------------------------------------------
+
+  tool: null, // null | 'laser' | 'pen'
+  penColor: '#ff2d2d',
+
+  setTool(tool, silent) {
+    if (this.tool === tool) return;
+    this.tool = tool;
+    $('current').classList.toggle('drawing', !!tool);
+    $('laserBtn').classList.toggle('on', tool === 'laser');
+    $('penBtn').classList.toggle('on', tool === 'pen');
+    $('penColors').classList.toggle('hidden', tool !== 'pen');
+    $('laserDot').classList.add('hidden');
+    if (!silent) Activity.log(tool ? `Tool: ${tool === 'laser' ? 'laser pointer' : 'pen'}` : 'Tool: off');
+  },
+
+  renderSlideTools() {
+    const s = this.st;
+    const on = !!(this.transport && s && s.showing && !s.black);
+    $('slideTools').classList.toggle('hidden', !on);
+    const ink = !!(s && (s.ink || (this.inkSlides.get(s.index) || []).length));
+    $('eraseBtn').classList.toggle('hidden', !on || !ink);
+  },
+
+  /** Area of the slide inside the current-slide box (the image is letterboxed). */
+  slideRect() {
+    const box = $('current').getBoundingClientRect();
+    const img = $('currentImg');
+    const aspect = img.naturalWidth && img.getAttribute('src') ? img.naturalWidth / img.naturalHeight : 16 / 9;
+    let w = box.width;
+    let h = w / aspect;
+    if (h > box.height) { h = box.height; w = h * aspect; }
+    return { left: box.left + (box.width - w) / 2, top: box.top + (box.height - h) / 2, width: w, height: h, boxLeft: box.left, boxTop: box.top };
+  },
+
+  /** Normalised slide coordinates (0…1) for a pointer event, or null outside the slide. */
+  toSlide(e, clamp) {
+    const r = this.slideRect();
+    let x = (e.clientX - r.left) / r.width;
+    let y = (e.clientY - r.top) / r.height;
+    if (!clamp && (x < -0.02 || x > 1.02 || y < -0.02 || y > 1.02)) return null;
+    x = Math.min(1, Math.max(0, x));
+    y = Math.min(1, Math.max(0, y));
+    return { x, y };
+  },
+
+  enc(p) { return `${Math.round(p.x * 10000)},${Math.round(p.y * 10000)}`; },
+
+  pendingPoints: [],
+  pendingLaser: null,
+  flushTimer: null,
+  stroke: null,
+
+  /** Pointer moves are batched (about 25 per second) so Bluetooth isn't flooded. */
+  scheduleFlush() {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flushPointer();
+    }, 40);
+  },
+
+  flushPointer() {
+    if (!this.transport) return;
+    if (this.pendingLaser) {
+      this.transport.send(`lz ${this.enc(this.pendingLaser)}`, true);
+      this.pendingLaser = null;
+    }
+    while (this.pendingPoints.length) {
+      const batch = this.pendingPoints.splice(0, 12);
+      this.transport.send(`pm ${batch.map((p) => this.enc(p)).join(';')}`, true);
+    }
+  },
+
+  pointerDown(e) {
+    if (!this.tool) return;
+    const p = this.toSlide(e, false);
+    if (!p) return;
+    e.preventDefault();
+    $('current').setPointerCapture(e.pointerId);
+    if (this.tool === 'laser') {
+      this.pendingLaser = p;
+      this.showLaser(p);
+      this.scheduleFlush();
+    } else {
+      this.flushPointer();
+      this.stroke = { color: this.penColor, points: [p] };
+      const list = this.inkSlides.get(this.st.index) || [];
+      list.push(this.stroke);
+      this.inkSlides.set(this.st.index, list);
+      this.transport.send(`pd ${this.penColor} ${this.enc(p)}`, true);
+      this.renderInk();
+      this.renderSlideTools();
+    }
+  },
+
+  pointerMove(e) {
+    if (!this.tool || !$('current').hasPointerCapture(e.pointerId)) return;
+    const p = this.toSlide(e, true);
+    e.preventDefault();
+    if (this.tool === 'laser') {
+      this.pendingLaser = p;
+      this.showLaser(p);
+    } else if (this.stroke) {
+      const last = this.stroke.points[this.stroke.points.length - 1];
+      if (Math.abs(last.x - p.x) + Math.abs(last.y - p.y) < 0.002) return;
+      this.stroke.points.push(p);
+      this.pendingPoints.push(p);
+      this.renderInk();
+    }
+    this.scheduleFlush();
+  },
+
+  pointerUp(e) {
+    if (!this.tool) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    this.flushPointer();
+    if (this.tool === 'laser') {
+      this.transport.send('lz off', true);
+      $('laserDot').classList.add('hidden');
+    } else if (this.stroke) {
+      this.transport.send('pu', true);
+      this.stroke = null;
+    }
+  },
+
+  showLaser(p) {
+    const r = this.slideRect();
+    const dot = $('laserDot');
+    dot.style.left = `${r.left - r.boxLeft + p.x * r.width}px`;
+    dot.style.top = `${r.top - r.boxTop + p.y * r.height}px`;
+    dot.classList.remove('hidden');
+  },
+
+  eraseInk() {
+    this.inkSlides.delete(this.st.index);
+    this.send('ink clear');
+    this.renderInk();
+    this.renderSlideTools();
+  },
+
+  /** Draws this device's strokes for the shown slide on the canvas over the slide image. */
+  renderInk() {
+    const canvas = $('inkCanvas');
+    const box = $('current');
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(box.clientWidth * dpr);
+    const h = Math.round(box.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    const strokes = (this.st && this.st.showing && this.inkSlides.get(this.st.index)) || [];
+    if (!strokes.length) return;
+    const r = this.slideRect();
+    const ox = (r.left - r.boxLeft) * dpr;
+    const oy = (r.top - r.boxTop) * dpr;
+    const sw = r.width * dpr;
+    const sh = r.height * dpr;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, sh * 0.007);
+    for (const st of strokes) {
+      ctx.strokeStyle = st.color;
+      ctx.fillStyle = st.color;
+      ctx.beginPath();
+      st.points.forEach((p, i) => (i ? ctx.lineTo(ox + p.x * sw, oy + p.y * sh) : ctx.moveTo(ox + p.x * sw, oy + p.y * sh)));
+      if (st.points.length === 1) {
+        ctx.arc(ox + st.points[0].x * sw, oy + st.points[0].y * sh, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.stroke();
+      }
     }
   },
 
@@ -838,6 +1145,56 @@ const App = {
 };
 
 // ---------------------------------------------------------------------------
+// Formatted notes
+// ---------------------------------------------------------------------------
+
+/** Makes dark text colours readable on the dark notes background. */
+function readableColor(hex) {
+  const v = parseInt(hex.slice(1), 16);
+  let r = (v >> 16) & 255;
+  let g = (v >> 8) & 255;
+  let b = v & 255;
+  const lum = (x, y, z) => (0.2126 * x + 0.7152 * y + 0.0722 * z) / 255;
+  for (let i = 0; i < 6 && lum(r, g, b) < 0.45; i++) {
+    r = Math.round(r + (255 - r) * 0.35);
+    g = Math.round(g + (255 - g) * 0.35);
+    b = Math.round(b + (255 - b) * 0.35);
+  }
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** @param {{l?: number, b?: string, n?: string, r: [string, string][]}[]} paras */
+function renderRichNotes(paras) {
+  const frag = document.createDocumentFragment();
+  for (const p of paras) {
+    const div = document.createElement('div');
+    div.className = 'np';
+    div.style.paddingLeft = `${((p.l || 1) - 1) * 1.3 + (p.b ? 1.3 : 0)}em`;
+    if (p.b) {
+      const bullet = document.createElement('span');
+      bullet.className = 'bullet';
+      // Symbol-font bullets (Wingdings etc.) don't map to readable characters; use a dot then.
+      const ch = (p.n || '').trim();
+      bullet.textContent = p.b === '#' ? `${p.n}.` : /^[•◦▪▫■□●○–—\-➢➤►✓✔*]$/.test(ch) ? ch : '•';
+      div.appendChild(bullet);
+    }
+    for (const [text, style] of p.r) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (style.includes('b')) span.style.fontWeight = '700';
+      if (style.includes('i')) span.style.fontStyle = 'italic';
+      if (style.includes('u')) span.style.textDecoration = 'underline';
+      const m = style.match(/#[0-9a-f]{6}/i);
+      if (m) span.style.color = readableColor(m[0]);
+      div.appendChild(span);
+    }
+    if (!p.r.some(([t]) => t.trim())) div.appendChild(document.createElement('br'));
+    frag.appendChild(div);
+  }
+  return frag;
+}
+
+// ---------------------------------------------------------------------------
 // Settings: storage and activity
 // ---------------------------------------------------------------------------
 
@@ -860,7 +1217,7 @@ const Panels = {
 
   async clearStorage() {
     const s = await SlideStore.stats();
-    if (!confirm(`Delete ${s.count} stored slides (${fmtBytes(s.bytes)}) from this iPad?\nThey will be downloaded again from the Mac when needed.`)) return;
+    if (!confirm(`Delete ${s.count} stored slides (${fmtBytes(s.bytes)}) from this device?\nThey will be downloaded again from the Mac when needed.`)) return;
     await SlideStore.clear();
     Activity.log(`Deleted ${s.count} stored slides (${fmtBytes(s.bytes)})`);
     toast('Stored slides deleted');
@@ -901,7 +1258,7 @@ const Panels = {
       const visible = s.count - (s.hidden || []).length;
       const fromStore = [...App.imageInfo.values()].filter((x) => x.source === 'store').length;
       const downloaded = [...App.imageInfo.values()].filter((x) => x.source === 'download').length;
-      row('Slides', `${App.images.size} / ${visible} on iPad · ${fromStore} from storage · ${downloaded} downloaded`);
+      row('Slides', `${App.images.size} / ${visible} on this device · ${fromStore} from storage · ${downloaded} downloaded`);
       const missing = App.missingSlides();
       const inflight = [...App.inflight];
       row('Downloading', missing.length
@@ -912,7 +1269,7 @@ const Panels = {
       row('Avg. image', `${fmtBytes(a.imageBytes / a.imagesDownloaded)} · ${(a.imageMs / a.imagesDownloaded / 1000).toFixed(2)} s`);
     }
     const fmt = App.deckInfo ? App.deckInfo.fmt.toUpperCase() : '–';
-    row('Format', `${fmt}${t && t.kind === 'bluetooth' ? ` · ${QUALITY_NAMES[prefs.quality]} quality` : ''} · iPad supports ${App.formats.join(', ').toUpperCase()}`);
+    row('Format', `${fmt}${t && t.kind === 'bluetooth' ? ` · ${QUALITY_NAMES[prefs.quality]} quality` : ''} · this device shows ${App.formats.join(', ').toUpperCase()}`);
     if (force) {
       const st = await SlideStore.stats();
       this.storageLine = `${fmtBytes(st.bytes)} · ${st.count} slides · ${st.decks} presentation${st.decks === 1 ? '' : 's'}`;
@@ -1083,6 +1440,26 @@ function init() {
     if (cur) cur.scrollIntoView({ block: 'center' });
   });
   $('gridClose').addEventListener('click', () => $('gridView').classList.add('hidden'));
+  $('deckBtn').addEventListener('click', () => App.openPresentations());
+  $('presClose').addEventListener('click', () => $('presView').classList.add('hidden'));
+
+  // Laser pointer and pen on the current slide.
+  $('laserBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'laser' ? null : 'laser'); });
+  $('penBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'pen' ? null : 'pen'); });
+  $('eraseBtn').addEventListener('click', (e) => { e.stopPropagation(); App.eraseInk(); });
+  for (const sw of document.querySelectorAll('.swatch')) {
+    sw.addEventListener('click', (e) => {
+      e.stopPropagation();
+      App.penColor = sw.dataset.color;
+      document.querySelectorAll('.swatch').forEach((x) => x.classList.toggle('on', x === sw));
+    });
+  }
+  const cur = $('current');
+  const onSlideTools = (e) => e.target.closest('.slidetools, .mediabars');
+  cur.addEventListener('pointerdown', (e) => { if (!onSlideTools(e)) App.pointerDown(e); });
+  cur.addEventListener('pointermove', (e) => App.pointerMove(e));
+  cur.addEventListener('pointerup', (e) => App.pointerUp(e));
+  cur.addEventListener('pointercancel', (e) => App.pointerUp(e));
 
   $('fontUp').addEventListener('click', () => setFontSize(prefs.fontSize + 2));
   $('fontDown').addEventListener('click', () => setFontSize(prefs.fontSize - 2));
@@ -1162,7 +1539,7 @@ function init() {
     touchStart = { x: t.clientX, y: t.clientY };
   }, { passive: true });
   $('current').addEventListener('touchend', (e) => {
-    if (!touchStart || !prefs.swipe) return;
+    if (!touchStart || !prefs.swipe || App.tool) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - touchStart.x;
     const dy = t.clientY - touchStart.y;
@@ -1198,9 +1575,11 @@ function init() {
   setInterval(() => {
     Timer.render();
     renderClock();
+    App.tickMedia();
     if (Panels.activityOpen) Panels.renderActivity(false);
   }, 500);
-  window.addEventListener('resize', () => App.renderSlides());
+  window.addEventListener('resize', () => { App.renderSlides(); App.renderInk(); });
+  $('currentImg').addEventListener('load', () => App.renderInk());
   Timer.render();
   renderClock();
   App.render();

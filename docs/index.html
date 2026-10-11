@@ -19,7 +19,7 @@
       <button id="connBtn" class="chip" title="Connection">
         <span id="connDot" class="dot off"></span><span id="connLabel">Not connected</span>
       </button>
-      <div id="deckName" class="deck"></div>
+      <button id="deckBtn" class="deck" title="Choose presentation"><span id="deckName"></span><span id="deckCaret" class="caret hidden">▾</span></button>
       <div id="slideNum" class="slidenum">–</div>
       <button id="timer" class="chip mono" title="Tap: start/pause · Hold: reset">00:00</button>
       <div id="clock" class="mono clock"></div>
@@ -30,8 +30,22 @@
       <section id="slides">
         <div id="current" class="slidebox">
           <img id="currentImg" alt="">
+          <canvas id="inkCanvas"></canvas>
+          <div id="laserDot" class="hidden"></div>
           <div id="currentMsg" class="slidemsg"></div>
           <div id="blackBadge" class="badge hidden">Screen is black</div>
+          <div id="slideTools" class="slidetools hidden">
+            <button id="laserBtn" class="stool" title="Laser pointer: touch the slide" aria-label="Laser pointer">●</button>
+            <button id="penBtn" class="stool" title="Pen: draw on the slide" aria-label="Pen">✎</button>
+            <div id="penColors" class="pencolors hidden">
+              <button class="swatch on" data-color="#ff2d2d" style="background:#ff2d2d" aria-label="Red"></button>
+              <button class="swatch" data-color="#ffd60a" style="background:#ffd60a" aria-label="Yellow"></button>
+              <button class="swatch" data-color="#32d74b" style="background:#32d74b" aria-label="Green"></button>
+              <button class="swatch" data-color="#0a84ff" style="background:#0a84ff" aria-label="Blue"></button>
+            </div>
+            <button id="eraseBtn" class="stool hidden" title="Erase drawings on this slide" aria-label="Erase drawings">⌫</button>
+          </div>
+          <div id="mediaBars" class="mediabars"></div>
         </div>
         <div id="toolrow">
           <div id="next" class="slidebox small">
@@ -51,6 +65,7 @@
       <section id="notesPane">
         <div id="notesHead">
           <span>Notes</span>
+          <span id="sectionName" class="section"></span>
           <span class="spacer"></span>
           <button id="fontDown" class="iconbtn small" aria-label="Smaller text">A−</button>
           <button id="fontUp" class="iconbtn small" aria-label="Larger text">A+</button>
@@ -72,8 +87,8 @@
       <p class="sub">Control PowerPoint on your Mac and read your speaker notes.</p>
       <button id="bleConnectBtn" class="big primary">Connect via Bluetooth</button>
       <p id="bleUnavailable" class="hint hidden">
-        Bluetooth isn’t available in this browser. On iPad, install the free
-        <b>Bluefy – Web BLE Browser</b> from the App Store and open this page in it:<br>
+        Bluetooth isn’t available in this browser. On <b>Android</b>, open this page in <b>Chrome</b>.
+        On <b>iPad/iPhone</b>, install the free <b>Bluefy – Web BLE Browser</b> from the App Store and open this page in it:<br>
         <code id="pageUrl"></code>
       </p>
       <button id="netConnectBtn" class="big hidden">Connect via network</button>
@@ -92,6 +107,15 @@
       <p id="pinError" class="error"></p>
       <button id="pinOk" class="big primary">OK</button>
       <button id="pinCancel" class="big">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Presentation picker -->
+  <div id="presView" class="overlay hidden">
+    <div class="panel">
+      <div class="panelhead"><h2>Presentation</h2><button id="presClose" class="iconbtn">✕</button></div>
+      <p class="sub">Choose which open PowerPoint presentation to control.</p>
+      <div id="presList" class="preslist"></div>
     </div>
   </div>
 
@@ -122,7 +146,7 @@
       <h3>Stored slides</h3>
       <p id="storageInfo" class="hint">…</p>
       <button id="clearStoreBtn" class="big">Delete stored slides</button>
-      <p class="hint">Tip: set iPad <i>Settings › Display › Auto-Lock</i> to “Never” while presenting.</p>
+      <p class="hint">Tip: turn off auto-lock (iPad: <i>Settings › Display › Auto-Lock</i>) while presenting.</p>
       <div class="footrow">
         <span id="versionInfo" class="hint mono"></span>
         <button id="activityBtn" class="linkbtn">Activity log</button>

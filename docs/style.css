@@ -54,7 +54,13 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .dot.warn { background: var(--warn); }
 .dot.off { background: var(--bad); }
-.deck { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.deck {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: none;
+  color: var(--muted); padding: 6px 4px; text-align: left; font-size: 15px;
+}
+.deck #deckName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck .caret { color: var(--text); flex: none; }
+.deck:disabled { cursor: default; }
 .slidenum { font-size: 22px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 #timer { font-size: 18px; }
 #timer.running { border-color: var(--ok); color: var(--ok); }
@@ -104,6 +110,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 .tool.on { background: var(--warn); color: #000; border-color: var(--warn); }
 .tool:disabled, .nav:disabled { opacity: .35; }
 #gridBtn { grid-column: span 2; }
+.tool { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Notes */
 #notesPane {
@@ -139,8 +146,26 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 }
 
 @media (max-width: 700px) {
-  .clock, #deckName { display: none; }
+  .clock { display: none; }
   #navbar { height: 76px; }
+}
+
+/* Phones */
+@media (max-width: 600px) {
+  #app { padding-left: 8px; padding-right: 8px; gap: 6px; }
+  #topbar { gap: 6px; }
+  #connLabel { display: none; }
+  .chip { padding: 8px 10px; }
+  .slidenum { font-size: 18px; }
+  #timer { font-size: 15px; }
+  #toolrow { height: auto; min-height: 0; gap: 8px; }
+  #next { width: 42%; max-width: none; height: auto; }
+  #tools { grid-template-columns: 1fr 1fr !important; gap: 6px; }
+  #gridBtn { grid-column: span 2 !important; }
+  .tool { font-size: 14px; min-height: 36px; padding: 4px 6px; }
+  .panel #grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+  .panel { padding: 16px; }
+  .panel.wide { padding: 14px; }
 }
 
 /* Overlays */
@@ -176,15 +201,58 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 }
 
 #grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px;
-  overflow-y: auto; padding: 2px;
+  flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-auto-rows: max-content; align-content: start; gap: 10px; overflow-y: auto; padding: 2px;
 }
-.gcell { aspect-ratio: 16 / 9; position: relative; padding: 0; background: #000; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; }
+.gcell { aspect-ratio: 16 / 9; width: 100%; position: relative; padding: 0; background: #000; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; }
+.gsec { grid-column: 1 / -1; color: var(--muted); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 2px 0; }
 .gcell.cur { border-color: var(--accent); }
 .gcell.hid { opacity: .45; }
 .gcell img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .gcell .num { position: absolute; bottom: 4px; right: 6px; background: rgba(0,0,0,.7); border-radius: 5px; padding: 0 6px; font-size: 14px; }
 .gcell .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #3a4350; font-weight: 700; }
+
+/* Laser pointer, pen and media controls on the current slide */
+#current.drawing { touch-action: none; cursor: crosshair; }
+#inkCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#laserDot {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none;
+  background: #ff2d2d; box-shadow: 0 0 0 8px rgba(255, 45, 45, .3), 0 0 18px 6px rgba(255, 45, 45, .6);
+}
+.slidetools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; align-items: center; }
+.stool {
+  width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(255,255,255,.25);
+  background: rgba(17, 20, 24, .72); color: #fff; font-size: 18px; padding: 0;
+}
+.stool.on { background: var(--accent); border-color: var(--accent); }
+#laserBtn { color: #ff4d4d; }
+#laserBtn.on { color: #fff; background: #e11d1d; border-color: #e11d1d; }
+.pencolors { display: flex; gap: 5px; background: rgba(17, 20, 24, .72); padding: 6px; border-radius: 21px; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+.swatch.on { border-color: #fff; }
+.mediabars { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.mediabar {
+  display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 12px; pointer-events: auto;
+  background: rgba(17, 20, 24, .82); border: 1px solid rgba(255,255,255,.15); width: max-content; max-width: 100%;
+}
+.mbtn { min-width: 44px; height: 38px; border-radius: 9px; border: none; background: rgba(255,255,255,.12); color: #fff; font-size: 15px; font-weight: 600; }
+.mbtn.play { background: var(--accent); min-width: 54px; }
+.minfo { padding: 0 8px; font-variant-numeric: tabular-nums; color: #dfe6ee; font-size: 14px; white-space: nowrap; }
+
+/* Formatted notes */
+.notes .np { position: relative; margin: 0 0 .35em; white-space: pre-wrap; }
+.notes .bullet { position: absolute; margin-left: -1.2em; color: var(--muted); }
+#notesHead .section { color: var(--text); opacity: .75; font-size: 14px; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#notesHead .section:not(:empty)::before { content: "· "; }
+
+/* Presentation picker */
+.preslist { display: flex; flex-direction: column; gap: 8px; }
+.presitem {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px 14px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); font-size: 16px; word-break: break-word;
+}
+.presitem small { color: var(--muted); font-size: 13px; }
+.presitem.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* Short fade when a new slide image appears */
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
@@ -217,4 +285,17 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   position: fixed; left: 50%; bottom: calc(110px + var(--safe-bottom)); transform: translateX(-50%);
   background: #000c; border: 1px solid var(--line); padding: 10px 18px; border-radius: 999px; z-index: 20;
   font-size: 15px; pointer-events: none;
+}
+
+/* Phones: smaller controls on the slide (after the base rules above) */
+@media (max-width: 600px) {
+  .slidetools { top: 5px; right: 5px; gap: 4px; }
+  .stool { width: 32px; height: 32px; font-size: 14px; }
+  .pencolors { padding: 4px; gap: 4px; }
+  .swatch { width: 20px; height: 20px; }
+  .mediabars { left: 5px; right: 5px; bottom: 5px; }
+  .mediabar { padding: 4px; gap: 4px; border-radius: 9px; }
+  .mbtn { min-width: 34px; height: 28px; font-size: 13px; border-radius: 7px; }
+  .mbtn.play { min-width: 40px; }
+  .minfo { font-size: 12px; padding: 0 4px; }
 }

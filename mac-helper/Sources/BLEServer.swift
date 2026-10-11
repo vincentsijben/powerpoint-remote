@@ -28,6 +28,9 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         var targets: [UUID]?   // nil = all authenticated subscribers
         var isState = false
         var isDeck = false
+        /// Notes / presentation list carried by a state message (to resend if it is dropped unsent).
+        var notes: [Int] = []
+        var carriesList = false
     }
     private var highQueue: [OutMessage] = []
     private var lowQueue: [OutMessage] = []
@@ -39,6 +42,9 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
     private var format: ImageFormat = .jpeg
     private var encoding = false
     private var lastSentDeck = ""
+    /// Notes level (1 plain, 2 formatted) already sent per slide, so state updates stay small.
+    private var sentNotes: [Int: Int] = [:]
+    private var lastSentList = ""
 
     private(set) var status = "Starting…"
     var onStatusChange: (() -> Void)?
@@ -110,6 +116,8 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
         subscribers[central.identifier] = central
+        // Ask for a short connection interval: many more packets per second (notably on Android).
+        peripheral.setDesiredConnectionLatency(.low, for: central)
         Log.write("BLE central subscribed: \(central.identifier) (max \(central.maximumUpdateValueLength) bytes)")
         if authed.contains(central.identifier) {
             enqueueState(force: true)
@@ -168,6 +176,7 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
                 Log.write("BLE client formats: \(tokens.count > 1 ? tokens[1] : "-") → \(format.rawValue), quality \(preset)")
                 authed.insert(id)
                 Log.write("BLE central authenticated: \(id)")
+                resetSent()
                 enqueueJSON(["type": "auth", "ok": true], to: [id])
                 enqueueDeck()
                 enqueueState(force: true)
@@ -183,6 +192,7 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         }
         switch cmd {
         case "hello":
+            resetSent()
             enqueueDeck()
             enqueueState(force: true)
         case "deck":
@@ -218,9 +228,15 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         if hub.deckID != lastSentDeck {
             imageRequests.removeAll()
             lowQueue.removeAll { $0.next == 0 }
+            sentNotes = [:]
             enqueueDeck()
         }
         enqueueState(force: false)
+    }
+
+    private func resetSent() {
+        sentNotes = [:]
+        lastSentList = ""
     }
 
     private func enqueueDeck() {
@@ -237,10 +253,27 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
     private func enqueueState(force: Bool) {
         guard !authed.isEmpty else { return }
         lastSentVersion = hub.version
-        // Only the newest state matters: drop queued states that have not started sending yet.
+        // Only the newest state matters: drop queued states that have not started sending yet
+        // (and forget what they carried, so it is included again).
+        for m in highQueue where m.isState && m.next == 0 {
+            for n in m.notes { sentNotes[n] = nil }
+            if m.carriesList { lastSentList = "" }
+        }
         highQueue.removeAll { $0.isState && $0.next == 0 }
-        var msg = makeMessage(type: 1, payload: hub.stateJSON(allNotes: false))
+        let st = hub.state
+        let wanted = [st.index, st.index + 1].filter { hub.notesLevel($0) > (sentNotes[$0] ?? 0) }
+        let list = hub.presentationList()
+        let listKey = ((try? JSONSerialization.data(withJSONObject: list)).map { String(decoding: $0, as: UTF8.self) } ?? "")
+        let sendList = listKey != lastSentList
+        var obj = hub.stateObject(notesFor: wanted, includeList: sendList)
+        if obj["notes"] == nil { obj["notes"] = [:] as [String: String] }
+        guard let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        for n in wanted { sentNotes[n] = hub.notesLevel(n) }
+        if sendList { lastSentList = listKey }
+        var msg = makeMessage(type: 1, payload: data)
         msg.isState = true
+        msg.notes = wanted
+        msg.carriesList = sendList
         highQueue.append(msg)
         pump()
     }
