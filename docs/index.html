@@ -119,14 +119,37 @@
       <button id="reloadBtn" class="big">Reload slides from PowerPoint</button>
       <button id="changePinBtn" class="big">Change PIN</button>
       <button id="disconnectBtn" class="big danger">Disconnect</button>
+      <h3>Stored slides</h3>
+      <p id="storageInfo" class="hint">…</p>
+      <button id="clearStoreBtn" class="big">Delete stored slides</button>
       <p class="hint">Tip: set iPad <i>Settings › Display › Auto-Lock</i> to “Never” while presenting.</p>
-      <p id="debugInfo" class="hint mono"></p>
+      <div class="footrow">
+        <span id="versionInfo" class="hint mono"></span>
+        <button id="activityBtn" class="linkbtn">Activity log</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity (behind the scenes) -->
+  <div id="activityView" class="overlay hidden">
+    <div class="panel wide">
+      <div class="panelhead"><h2>Activity</h2><button id="activityClose" class="iconbtn">✕</button></div>
+      <div id="actStats" class="stats"></div>
+      <div class="actbar">
+        <span class="hint">Newest at the bottom</span>
+        <span class="spacer"></span>
+        <button id="copyLogBtn" class="iconbtn small wide">Copy</button>
+        <button id="clearLogBtn" class="iconbtn small wide">Clear</button>
+      </div>
+      <div id="actLog" class="actlog mono"></div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
 
   <script src="protocol.js"></script>
+  <script src="activity.js"></script>
+  <script src="storage.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

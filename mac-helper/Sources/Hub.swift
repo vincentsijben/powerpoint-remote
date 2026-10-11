@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum Log {
@@ -98,7 +99,7 @@ final class Hub {
                 deckID = ""
                 notes = []
                 hidden = []
-                images.load(pdfPath: nil, hidden: [])
+                images.load(pdfPath: nil, hidden: []) {}
             }
         } else if st.fullName != old.fullName || st.count != old.count || deckID.isEmpty {
             if !loading { reloadDeck() }
@@ -113,21 +114,33 @@ final class Hub {
         loading = true
         bump()
         Log.write("Loading deck…")
+        let t = Date()
         ppt.loadDeck { [weak self] load in
             guard let self else { return }
-            self.loading = false
-            if let load {
+            guard let load else {
+                self.loading = false
+                Log.write("Deck load failed")
+                self.bump()
+                self.poll()
+                return
+            }
+            self.images.load(pdfPath: load.pdfPath, hidden: load.hidden) {
+                self.loading = false
                 self.notes = load.notes
                 self.hidden = load.hidden
-                self.images.load(pdfPath: load.pdfPath, hidden: load.hidden)
-                self.deckID = String(UInt32.random(in: 0...UInt32.max), radix: 36)
-                Log.write("Deck loaded: \(load.fullName), \(load.notes.count) slides, images: \(load.pdfPath != nil)")
-            } else {
-                Log.write("Deck load failed")
+                self.deckID = Self.makeDeckID(name: load.fullName, keys: self.images.keys, loaded: self.images.isLoaded)
+                Log.write("Deck loaded: \(load.fullName), \(load.notes.count) slides, images: \(self.images.isLoaded), " +
+                          "id \(self.deckID), \(Int(Date().timeIntervalSince(t) * 1000)) ms")
+                self.bump()
+                self.poll()
             }
-            self.bump()
-            self.poll()
         }
+    }
+
+    /// Same slides => same ID, so a remote can keep using the slides it already stored.
+    private static func makeDeckID(name: String, keys: [String], loaded: Bool) -> String {
+        let source = loaded ? keys.joined(separator: ",") : "\(name)|\(keys.count)|\(Date().timeIntervalSince1970)"
+        return SHA256.hash(data: Data(source.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
     }
 
     private func refreshNotes(_ index: Int) {
@@ -201,5 +214,17 @@ final class Hub {
 
     func stateJSON(allNotes: Bool) -> Data {
         (try? JSONSerialization.data(withJSONObject: stateObject(allNotes: allNotes))) ?? Data("{}".utf8)
+    }
+
+    /// Per-slide content keys; sent once per deck so the remote can look slides up in its own storage.
+    func deckObject(format: ImageFormat) -> [String: Any] {
+        [
+            "type": "deck",
+            "deck": deckID,
+            "name": deckName,
+            "keys": images.keys,
+            "fmt": format.rawValue,
+            "macFormats": ImageFormat.encodable.map(\.rawValue),
+        ]
     }
 }

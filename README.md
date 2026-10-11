@@ -22,6 +22,9 @@ flowchart LR
 - A presentation timer and a clock.
 - Follows changes you make on the Mac itself (keyboard, clicker, mouse).
 - Protected by a 4-digit **PIN** so students can't take over.
+- **Jumps straight to a slide** from the slide grid, so the audience doesn't see the slides in between.
+- Small **AVIF** slide images (about 5× smaller than JPEG), **stored on the iPad**, so reconnecting is instant and only changed slides are sent again.
+- An **activity log** (⚙︎ › *Activity log*) shows what happens behind the scenes: images being fetched, sizes, speed, and data transferred.
 
 ## 1. Mac: build and start the helper
 
@@ -37,6 +40,7 @@ The first time it runs, macOS asks for some permissions. Allow all of them:
 - **Bluetooth**: so the iPad can connect.
 - **Control "Microsoft PowerPoint"** (Automation): to change slides and read notes.
 - **Incoming network connections** (only if the firewall asks): needed for network mode.
+- **Accessibility** (optional): lets the helper jump straight to a slide during a slide show. PowerPoint's scripting can only step one slide at a time, so the helper types the slide number + Return for you. Turn it on via the menu item *Enable Direct Slide Jumps…*. Without it, jumps still work, but the projector briefly shows every slide in between.
 
 A new icon shows up in the **menu bar**. Click it to see:
 
@@ -47,8 +51,8 @@ A new icon shows up in the **menu bar**. Click it to see:
 
 Tip: copy the app to `/Applications` and add it under *System Settings › General › Login Items* so it starts on its own.
 
-> Every rebuild changes the app's ad-hoc signature, so macOS may ask for Bluetooth/Automation permission again.
-> If a permission seems stuck, run: `tccutil reset BluetoothAlways local.pptremote.helper` and `tccutil reset AppleEvents local.pptremote.helper`.
+> The app is signed with a fixed identifier, so permissions stay valid after rebuilding.
+> If a permission seems stuck, run `tccutil reset BluetoothAlways local.pptremote.helper` (or `AppleEvents` / `Accessibility`) and start the app again.
 
 ## 2. The web app (already online)
 
@@ -69,7 +73,11 @@ The iPad only needs internet the first time it loads the page (or after updates)
 3. Tap **Connect via Bluetooth** and choose **PPT Remote**.
 4. Enter the PIN from the Mac menu bar. It is remembered after that.
 
-Slide images reach the iPad at about 1–2 seconds per slide. They are all preloaded in the background, starting with the current and next slide. Notes and next/prev arrive right away. If images feel slow, set *Settings › Bluetooth image quality* to **Low**.
+Slide images are preloaded in the background, starting with the current and next slide. Over Bluetooth this takes about 0.2–0.7 seconds per slide. Notes and next/prev arrive right away. If images feel slow, set *Settings › Bluetooth image quality* to **Low**.
+
+Slides are **stored on the iPad**. The next time you connect with the same presentation, they show up instantly. After you edit a presentation, only the changed slides are sent again. *⚙︎ › Stored slides* shows how much space this uses (usually a few hundred KB per presentation) and has a button to delete them. Old slides are removed automatically when storage goes over 150 MB.
+
+Want to see what's going on? Open *⚙︎ › Activity log*. It shows the connection, data received and sent, the current speed, and how many slides are on the iPad. It also lists every image fetched, with its size, format and how long it took.
 
 ## Backup: network mode (any browser)
 
@@ -91,7 +99,9 @@ Next, scan the **QR code** in the Mac menu bar with the iPad camera, or type the
 | Problem | What to do |
 |---|---|
 | "PPT Remote" doesn't show up in Bluefy | Check the menu bar says *Bluetooth: ready*. Turn Bluetooth off and on again on the iPad. Quit and reopen the helper. |
-| No slide images, only numbers | The menu shows *loading…* while slides export. Try **Reload Slides from PowerPoint** in the menu. |
+| No slide images, only numbers | The menu shows *loading…* while slides export. Try **Reload Slides from PowerPoint** in the menu. Check *⚙︎ › Activity log* on the iPad. |
+| Jumping to a slide shows all slides in between | Turn on Accessibility for PPT Remote (menu › *Enable Direct Slide Jumps…*). The menu then says *Direct slide jumps: on*. |
+| Old slide images after editing | Tap **⚙︎ › Reload slides from PowerPoint**. If that doesn't help, use *Delete stored slides*. |
 | PowerPoint doesn't react | Check *System Settings › Privacy & Security › Automation › PPT Remote › Microsoft PowerPoint* is on. |
 | Wrong PIN | The PIN is in the Mac menu. *Generate New PIN* logs out all remotes. |
 | Anything else | Menu › **Show Log** (`~/Library/Logs/PPTRemote.log`). |
@@ -102,7 +112,9 @@ Next, scan the **QR code** in the Mac menu bar with the iPad camera, or type the
 |---|---|
 | [docs/](docs/) | iPad web app (static: HTML/CSS/JS, deployable to GitHub Pages) |
 | [docs/protocol.js](docs/protocol.js) | Bluetooth message framing (shared format with the Mac) |
-| [mac-helper/Sources/](mac-helper/Sources/) | Swift menu bar helper: PowerPoint control (AppleScript), slide rendering (PDF → JPEG), Bluetooth LE GATT server, HTTP server |
+| [docs/storage.js](docs/storage.js) | Stored slides (IndexedDB) and image format detection |
+| [docs/activity.js](docs/activity.js) | Activity log and transfer statistics |
+| [mac-helper/Sources/](mac-helper/Sources/) | Swift menu bar helper: PowerPoint control (AppleScript), slide rendering (PDF → AVIF/HEIC/JPEG), Bluetooth LE GATT server, HTTP server |
 | [mac-helper/build.sh](mac-helper/build.sh) | Builds `PPT Remote.app` with `swiftc` |
 | [tests/](tests/) | Protocol tests, including a Swift ↔ JavaScript framing check |
 
@@ -116,5 +128,5 @@ node --test tests/*.test.js
 
 The helper uses GATT service `2A4C9463-10DD-4D1D-9670-1C3D7737E942` with two characteristics:
 
-- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234`, `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `hello`.
-- **Data** `C8CBD42E-…` (notify): framed messages `[type][msgId][seq u16][total u16][payload]`. Type 1 is JSON (state, auth). Type 2 is an image: a JSON header line followed by the JPEG bytes.
+- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234 avif,heic,jpeg med` (PIN, image formats the iPad can show, quality), `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `fmt avif,jpeg`, `deck`, `hello`.
+- **Data** `C8CBD42E-…` (notify): framed messages `[type][msgId][seq u16][total u16][payload]`. Type 1 is JSON: `state`, `auth`, `noimage`, and `deck`. The `deck` message holds a content key per slide (a hash of the rendered slide), which the iPad uses to find stored slides. Type 2 is an image: a JSON header line (`slide`, `deck`, `key`, `fmt`, `w`, `q`, `enc`) followed by the image bytes in AVIF, HEIC or JPEG.

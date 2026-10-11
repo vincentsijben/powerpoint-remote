@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ble.onStatusChange = { [weak self] in self?.updateIcon() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.updateIcon() }
         hub.start()
-        Log.write("PPT Remote started. PIN \(hub.pin)")
+        Log.write("PPT Remote started. PIN \(hub.pin). Direct slide jumps: \(PowerPoint.canJumpDirectly ? "on" : "off (needs Accessibility)")")
     }
 
     private func updateIcon() {
@@ -58,6 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         addInfo(menu, pptLine)
         addInfo(menu, ble.status)
+        if PowerPoint.canJumpDirectly {
+            addInfo(menu, "Direct slide jumps: on")
+        } else {
+            addAction(menu, "Enable Direct Slide Jumps… (Accessibility)", #selector(enableJumps))
+        }
         addInfo(menu, "PIN: \(hub.pin)", bold: true)
         menu.addItem(.separator())
 
@@ -123,6 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func copyURL(_ sender: NSMenuItem) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sender.representedObject as? String ?? "", forType: .string)
+    }
+
+    @objc private func enableJumps() {
+        PowerPoint.requestJumpPermission()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func reload() { hub.reloadDeck() }

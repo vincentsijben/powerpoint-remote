@@ -106,14 +106,22 @@ final class HTTPServer {
             if let n = query["n"], !n.isEmpty { c += " \(n)" }
             let ok = hub.handle(command: c)
             respondJSON(conn, ["ok": ok])
+        case "/api/deck":
+            respondJSON(conn, hub.deckObject(format: ImageFormat.best(from: query["fmt"] ?? "jpeg")))
         case "/api/slide":
             let slide = Int(query["n"] ?? "") ?? 0
-            let width = Int(query["w"] ?? "") ?? 1600
-            let quality = Double(query["q"] ?? "") ?? 0.75
-            if let jpeg = hub.images.jpeg(slide: slide, width: width, quality: quality) {
-                respond(conn, status: "200 OK", type: "image/jpeg", body: jpeg, cache: "private, max-age=3600")
-            } else {
-                respond(conn, status: "404 Not Found", body: Data())
+            let spec = ImageSpec(format: ImageFormat.best(from: query["fmt"] ?? "jpeg"),
+                                 width: Int(query["w"] ?? "") ?? 1600,
+                                 quality: min(1, max(0.1, Double(query["q"] ?? "") ?? 0.75)))
+            let key = hub.images.key(for: slide)
+            hub.images.image(slide: slide, spec: spec) { [weak self] img in
+                guard let self else { return }
+                if let img {
+                    self.respond(conn, status: "200 OK", type: img.spec.format.mime, body: img.data,
+                                 cache: "private, max-age=3600", extra: ["X-Slide-Key": key, "X-Encode-Ms": String(img.encodeMs)])
+                } else {
+                    self.respond(conn, status: "404 Not Found", body: Data())
+                }
             }
         default:
             respond(conn, status: "404 Not Found", body: Data())
@@ -162,9 +170,12 @@ final class HTTPServer {
         respond(conn, status: status, type: "application/json", body: data)
     }
 
-    private func respond(_ conn: NWConnection, status: String, type: String = "text/plain", body: Data, cache: String = "no-store") {
-        let header = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\n" +
-            "Cache-Control: \(cache)\r\nConnection: close\r\n\r\n"
+    private func respond(_ conn: NWConnection, status: String, type: String = "text/plain", body: Data,
+                         cache: String = "no-store", extra: [String: String] = [:]) {
+        var header = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\n" +
+            "Cache-Control: \(cache)\r\nConnection: close\r\n"
+        for (k, v) in extra { header += "\(k): \(v)\r\n" }
+        header += "\r\n"
         var out = Data(header.utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })

@@ -1,6 +1,6 @@
 // Caches the app shell so the page can open without internet once it has been loaded before.
-const CACHE = 'pptremote-v1';
-const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'pptremote-v2';
+const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

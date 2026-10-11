@@ -15,7 +15,9 @@ swiftc -O -swift-version 5 \
 cp Info.plist "$APP/Contents/Info.plist"
 cp -R ../docs/. "$APP/Contents/Resources/web/"
 
-# Ad-hoc signature so macOS can remember the Bluetooth / Automation permissions.
-codesign --force --deep --sign - "$APP"
+# Ad-hoc signature so macOS can remember the Bluetooth / Automation / Accessibility permissions.
+# The explicit requirement (bundle identifier instead of the default per-build hash) keeps those
+# permissions valid after a rebuild.
+codesign --force --deep --sign - -r='designated => identifier "local.pptremote.helper"' "$APP"
 
 echo "Built: $(pwd)/$APP"

@@ -286,9 +286,68 @@ final class PowerPoint {
     func navigate(_ cmd: String, target: Int = 0, _ completion: @escaping (PPTState?) -> Void) {
         guard isRunning else { completion(nil); return }
         queue.async {
+            if cmd == "goto", let st = self.jumpDirectly(to: target) {
+                DispatchQueue.main.async { completion(st) }
+                return
+            }
             let st = self.run(Self.navScript, args: [cmd, String(target)]).map(Self.parseState)
             DispatchQueue.main.async { completion(st) }
         }
+    }
+
+    // MARK: - Direct jump (slide show)
+
+    /// Posting key events needs the Accessibility permission.
+    static var canJumpDirectly: Bool { AXIsProcessTrusted() }
+
+    static func requestJumpPermission() {
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(opts)
+    }
+
+    private static var askedForPermission = false
+
+    /// In a running slide show, AppleScript can only step slide by slide (the audience sees every slide
+    /// in between). Typing the slide number + Return jumps straight there, so send those keys to PowerPoint.
+    /// Returns nil when this is not possible, so the caller falls back to stepping.
+    private func jumpDirectly(to target: Int) -> PPTState? {
+        guard target >= 1, let before = run(Self.stateScript, args: []).map(Self.parseState),
+              before.showing, before.index != target else { return nil }
+        guard Self.canJumpDirectly else {
+            if !Self.askedForPermission {
+                Self.askedForPermission = true
+                Log.write("Direct slide jumps need Accessibility permission; stepping instead")
+                DispatchQueue.main.async { Self.requestJumpPermission() }
+            }
+            return nil
+        }
+        guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first?.processIdentifier
+        else { return nil }
+        let src = CGEventSource(stateID: .privateState)
+        let digitKeys: [Character: CGKeyCode] = ["0": 29, "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22, "7": 26, "8": 28, "9": 25]
+        func tap(_ code: CGKeyCode, _ char: Character?) {
+            for down in [true, false] {
+                guard let e = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: down) else { continue }
+                if let char {
+                    // Set the character too, so non-US keyboard layouts (e.g. AZERTY) still type digits.
+                    let utf16 = Array(String(char).utf16)
+                    e.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+                }
+                e.postToPid(pid)
+                usleep(12_000)
+            }
+        }
+        for c in String(target) { if let k = digitKeys[c] { tap(k, c) } }
+        tap(36, nil)
+        for _ in 0..<12 {
+            usleep(80_000)
+            if let st = run(Self.stateScript, args: []).map(Self.parseState), st.index == target || !st.showing {
+                Log.write("Jumped directly to slide \(target)")
+                return st
+            }
+        }
+        Log.write("Direct jump to slide \(target) did not work; stepping instead")
+        return nil
     }
 
     // MARK: - Helpers

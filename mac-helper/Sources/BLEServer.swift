@@ -4,11 +4,11 @@ import Foundation
 /// Bluetooth LE peripheral (GATT server) that the iPad web app connects to via Web Bluetooth.
 ///
 /// Protocol:
-/// - Command characteristic (write): UTF-8 text such as "auth 1234", "next", "goto 5", "img 3".
+/// - Command characteristic (write): UTF-8 text such as "auth 1234", "next", "goto 5", "img 3", "fmt avif,jpeg".
 /// - Data characteristic (notify): framed messages. Each notification is
 ///   [type u8][msgId u8][seq u16 LE][total u16 LE][payload...]. Payloads of all chunks
 ///   with the same msgId are concatenated. Type 1 = JSON text, type 2 = image
-///   (JSON header line + "\n" + JPEG bytes).
+///   (JSON header line + "\n" + image bytes in AVIF/HEIC/JPEG).
 final class BLEServer: NSObject, CBPeripheralManagerDelegate {
     static let serviceUUID = CBUUID(string: "2A4C9463-10DD-4D1D-9670-1C3D7737E942")
     static let commandUUID = CBUUID(string: "41D625BB-4F1D-4BBE-98B2-362DAAED35C1")
@@ -27,6 +27,7 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         var next = 0
         var targets: [UUID]?   // nil = all authenticated subscribers
         var isState = false
+        var isDeck = false
     }
     private var highQueue: [OutMessage] = []
     private var lowQueue: [OutMessage] = []
@@ -34,8 +35,10 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
     private var msgCounter: UInt8 = 0
     private var lastSentVersion = 0
 
-    private var imageWidth = 800
-    private var imageQuality = 0.5
+    private var preset = "med"
+    private var format: ImageFormat = .jpeg
+    private var encoding = false
+    private var lastSentDeck = ""
 
     private(set) var status = "Starting…"
     var onStatusChange: (() -> Void)?
@@ -157,10 +160,16 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         let arg = parts.count > 1 ? parts[1] : ""
 
         if cmd == "auth" {
-            if arg == hub.pin {
+            // "auth <pin> [formats] [quality]", e.g. "auth 1234 avif,heic,jpeg med"
+            let tokens = arg.split(separator: " ").map(String.init)
+            if tokens.first == hub.pin {
+                if tokens.count > 1 { format = ImageFormat.best(from: tokens[1]) }
+                if tokens.count > 2, ["low", "med", "high"].contains(tokens[2]) { preset = tokens[2] }
+                Log.write("BLE client formats: \(tokens.count > 1 ? tokens[1] : "-") → \(format.rawValue), quality \(preset)")
                 authed.insert(id)
                 Log.write("BLE central authenticated: \(id)")
                 enqueueJSON(["type": "auth", "ok": true], to: [id])
+                enqueueDeck()
                 enqueueState(force: true)
             } else {
                 enqueueJSON(["type": "auth", "ok": false, "need": true, "wrong": true], to: [id])
@@ -174,7 +183,18 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         }
         switch cmd {
         case "hello":
+            enqueueDeck()
             enqueueState(force: true)
+        case "deck":
+            enqueueDeck()
+        case "fmt":
+            let f = ImageFormat.best(from: arg)
+            if f != format {
+                format = f
+                imageRequests.removeAll()
+                Log.write("BLE image format: \(f.rawValue)")
+            }
+            enqueueDeck()
         case "img":
             for s in arg.split(separator: ",").compactMap({ Int($0.trimmingCharacters(in: .whitespaces)) })
             where !imageRequests.contains(s) {
@@ -185,11 +205,7 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
             imageRequests.removeAll()
             lowQueue.removeAll { $0.next == 0 }
         case "quality":
-            switch arg {
-            case "low": imageWidth = 560; imageQuality = 0.4
-            case "high": imageWidth = 1200; imageQuality = 0.6
-            default: imageWidth = 800; imageQuality = 0.5
-            }
+            preset = ["low", "med", "high"].contains(arg) ? arg : "med"
         default:
             hub.handle(command: text)
         }
@@ -199,7 +215,23 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
 
     private func sendStateIfNeeded() {
         guard !authed.isEmpty, hub.version != lastSentVersion else { return }
+        if hub.deckID != lastSentDeck {
+            imageRequests.removeAll()
+            lowQueue.removeAll { $0.next == 0 }
+            enqueueDeck()
+        }
         enqueueState(force: false)
+    }
+
+    private func enqueueDeck() {
+        guard !authed.isEmpty else { return }
+        lastSentDeck = hub.deckID
+        highQueue.removeAll { $0.isDeck && $0.next == 0 }
+        guard let data = try? JSONSerialization.data(withJSONObject: hub.deckObject(format: format)) else { return }
+        var msg = makeMessage(type: 1, payload: data)
+        msg.isDeck = true
+        highQueue.append(msg)
+        pump()
     }
 
     private func enqueueState(force: Bool) {
@@ -232,25 +264,36 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
         return OutMessage(chunks: Framing.frames(type: type, msgId: msgCounter, payload: payload, chunkSize: chunkPayloadSize()))
     }
 
+    /// Encodes the next requested slide in the background, then queues it for sending.
     private func prepareNextImage() {
-        while lowQueue.isEmpty, !imageRequests.isEmpty {
-            let slide = imageRequests.removeFirst()
-            guard let jpeg = hub.images.jpeg(slide: slide, width: imageWidth, quality: imageQuality) else {
-                enqueueJSON(["type": "noimage", "slide": slide, "deck": hub.deckID], to: Array(authed), pumpNow: false)
-                return
+        guard lowQueue.count < 2, !encoding, !imageRequests.isEmpty, !authed.isEmpty else { return }
+        let slide = imageRequests.removeFirst()
+        let deck = hub.deckID
+        let key = hub.images.key(for: slide)
+        let spec = ImageSpec.bluetooth(preset, format: format)
+        encoding = true
+        hub.images.image(slide: slide, spec: spec) { [weak self] img in
+            guard let self else { return }
+            self.encoding = false
+            guard deck == self.hub.deckID else { self.pump(); return }
+            if let img {
+                let header: [String: Any] = ["slide": slide, "deck": deck, "key": key, "fmt": img.spec.format.rawValue,
+                                             "w": img.spec.width, "q": self.preset, "enc": img.encodeMs]
+                var payload = (try? JSONSerialization.data(withJSONObject: header)) ?? Data()
+                payload.append(0x0A)
+                payload.append(img.data)
+                self.lowQueue.append(self.makeMessage(type: 2, payload: payload))
+            } else {
+                self.enqueueJSON(["type": "noimage", "slide": slide, "deck": deck], to: Array(self.authed), pumpNow: false)
             }
-            let header = (try? JSONSerialization.data(withJSONObject: ["slide": slide, "deck": hub.deckID])) ?? Data()
-            var payload = header
-            payload.append(0x0A)
-            payload.append(jpeg)
-            lowQueue.append(makeMessage(type: 2, payload: payload))
+            self.pump()
         }
     }
 
     private func pump() {
         guard let dataChar, manager.state == .poweredOn else { return }
         while true {
-            if highQueue.isEmpty && lowQueue.isEmpty { prepareNextImage() }
+            if lowQueue.count < 2 { prepareNextImage() } // encode the next image while this one is sent
             let useHigh = !highQueue.isEmpty
             guard useHigh || !lowQueue.isEmpty else { return }
             var msg = useHigh ? highQueue[0] : lowQueue[0]
