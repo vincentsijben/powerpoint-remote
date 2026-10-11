@@ -1,0 +1,46 @@
+name: Mac app
+
+# Builds "PPT Remote.app" for Apple silicon and Intel Macs.
+# Every push to main uploads it as a workflow artifact; pushing a tag like v1.4 publishes a GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths: ['mac-helper/**', 'docs/**', '.github/workflows/mac-app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (universal)
+        run: UNIVERSAL=1 ./mac-helper/build.sh
+
+      - name: Zip
+        run: |
+          cd mac-helper/build
+          ditto -c -k --sequesterRsrc --keepParent "PPT Remote.app" PPT-Remote-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PPT-Remote-mac
+          path: mac-helper/build/PPT-Remote-mac.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mac-helper/build/PPT-Remote-mac.zip
+          body: |
+            Download **PPT-Remote-mac.zip**, unzip it and move **PPT Remote** to your Applications folder.
+
+            The app is not notarised by Apple, so the first time macOS says it "cannot be opened". Then open
+            **System Settings › Privacy & Security**, scroll down and click **Open Anyway** next to "PPT Remote".
+            (Or run `xattr -dr com.apple.quarantine "/Applications/PPT Remote.app"` in Terminal.)
+
+            The web app for your iPad or phone: https://vincentsijben.github.io/powerpoint-remote/

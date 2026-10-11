@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import ServiceManagement
 
 /// Menu bar app: shows connection status, the PIN, and the network address (with QR code).
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -90,6 +91,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         addAction(menu, "Reload Slides from PowerPoint", #selector(reload))
+        addAction(menu, "Open Sounds Folder…", #selector(openSounds))
+        let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
+        login.target = self
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(login)
         addAction(menu, "Open Remote in Browser", #selector(openLocal))
         addAction(menu, "Show Log", #selector(showLog))
         addAction(menu, "Generate New PIN", #selector(newPin))
@@ -138,6 +144,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func reload() { hub.reloadDeck() }
+
+    @objc private func openSounds() {
+        try? FileManager.default.createDirectory(at: SoundBoard.userFolder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(SoundBoard.userFolder)
+    }
+
+    @objc private func toggleLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+                Log.write("Start at login: off")
+            } else {
+                try service.register()
+                Log.write("Start at login: on (\(Bundle.main.bundlePath))")
+                if !Bundle.main.bundlePath.hasPrefix("/Applications/") {
+                    let alert = NSAlert()
+                    alert.messageText = "Start at Login is on"
+                    alert.informativeText = "Tip: move PPT Remote to the Applications folder first, otherwise it stops starting at login when this folder moves or is rebuilt."
+                    alert.runModal()
+                }
+            }
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+    }
     @objc private func newPin() { hub.newPin() }
     @objc private func quit() { NSApp.terminate(nil) }
 

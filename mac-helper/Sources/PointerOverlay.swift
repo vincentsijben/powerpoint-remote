@@ -1,12 +1,17 @@
 import AppKit
 
-/// A transparent, click-through window on top of the slide show that draws the laser pointer and pen ink
-/// sent from the remote. Coordinates from the remote are normalised to the slide (0…1, top-left origin).
+/// A transparent, click-through window on top of the slide show that draws the laser pointer, pen ink,
+/// shapes and the whiteboard sent from the remote. Coordinates are normalised to the slide (0…1, top-left origin).
 final class PointerOverlay {
     struct Stroke {
+        /// pen (freehand) | line | arrow | ellipse | rect
+        var kind = "pen"
         var color: NSColor
         var points: [CGPoint]
     }
+
+    /// Page used for the whiteboard's drawings.
+    private static let whiteboardPage = -1
 
     private var window: NSWindow?
     private let view = OverlayView()
@@ -14,6 +19,8 @@ final class PointerOverlay {
     private var slide = 0
     private var laserTimer: Timer?
     private(set) var hasInkOnSlide = false
+    private(set) var whiteboard = false
+    private var page: Int { whiteboard ? Self.whiteboardPage : slide }
 
     /// Width / height of the slides (from the exported PDF).
     var slideAspect: CGFloat = 16.0 / 9.0 {
@@ -24,21 +31,27 @@ final class PointerOverlay {
     func update(showing: Bool, black: Bool, bounds: CGRect, slide newSlide: Int) {
         guard showing, bounds.width > 10, bounds.height > 10 else {
             if window != nil { hide() }
-            if !showing { strokesBySlide.removeAll() }
+            if !showing {
+                strokesBySlide.removeAll()
+                whiteboard = false
+                view.whiteboard = false
+            }
             refreshInkFlag()
             return
         }
         if newSlide != slide {
             slide = newSlide
-            view.laser = nil
-            view.current = nil
-            view.strokes = strokesBySlide[slide] ?? []
-            view.needsDisplay = true
+            if !whiteboard {
+                view.laser = nil
+                view.current = nil
+                view.strokes = strokesBySlide[page] ?? []
+                view.needsDisplay = true
+            }
         }
         let win = window ?? makeWindow()
         let frame = Self.cocoaFrame(fromTopLeft: bounds)
         if win.frame != frame { win.setFrame(frame, display: true) }
-        view.isHidden = black
+        view.isHidden = black && !whiteboard
         if !win.isVisible { win.orderFrontRegardless() }
         refreshInkFlag()
     }
@@ -65,10 +78,34 @@ final class PointerOverlay {
         view.needsDisplay = true
     }
 
+    /// Straight line, arrow, ellipse or rectangle from the first point to the moving end point.
+    func shapeDown(kind: String, color: NSColor, at p: CGPoint) {
+        view.current = Stroke(kind: kind, color: color, points: [p, p])
+        view.needsDisplay = true
+    }
+
+    func shapeMove(_ p: CGPoint) {
+        guard view.current != nil, view.current!.kind != "pen" else { return }
+        view.current!.points = [view.current!.points[0], p]
+        view.needsDisplay = true
+    }
+
+    func setWhiteboard(_ on: Bool) {
+        guard on != whiteboard else { return }
+        whiteboard = on
+        view.whiteboard = on
+        view.current = nil
+        view.laser = nil
+        view.strokes = strokesBySlide[page] ?? []
+        view.isHidden = false
+        view.needsDisplay = true
+        refreshInkFlag()
+    }
+
     func penUp() {
         if let s = view.current, s.points.count > 0 {
-            strokesBySlide[slide, default: []].append(s)
-            view.strokes = strokesBySlide[slide] ?? []
+            strokesBySlide[page, default: []].append(s)
+            view.strokes = strokesBySlide[page] ?? []
         }
         view.current = nil
         view.needsDisplay = true
@@ -76,7 +113,7 @@ final class PointerOverlay {
     }
 
     func clearInk() {
-        strokesBySlide[slide] = nil
+        strokesBySlide[page] = nil
         view.strokes = []
         view.current = nil
         view.needsDisplay = true
@@ -84,7 +121,7 @@ final class PointerOverlay {
     }
 
     private func refreshInkFlag() {
-        hasInkOnSlide = !(strokesBySlide[slide] ?? []).isEmpty
+        hasInkOnSlide = !(strokesBySlide[page] ?? []).isEmpty
     }
 
     private func hide() {
@@ -121,6 +158,7 @@ final class OverlayView: NSView {
     var strokes: [PointerOverlay.Stroke] = []
     var current: PointerOverlay.Stroke?
     var laser: CGPoint?
+    var whiteboard = false
 
     override var isFlipped: Bool { true }
 
@@ -143,6 +181,10 @@ final class OverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let r = slideRect
+        if whiteboard {
+            NSColor.white.setFill()
+            bounds.fill()
+        }
         let lineWidth = max(3, r.height * 0.007)
         for s in strokes + (current.map { [$0] } ?? []) {
             draw(stroke: s, width: lineWidth)
@@ -161,6 +203,10 @@ final class OverlayView: NSView {
         guard let first = s.points.first else { return }
         s.color.setStroke()
         s.color.setFill()
+        if s.kind != "pen", s.points.count >= 2 {
+            drawShape(s, width: width)
+            return
+        }
         if s.points.count == 1 {
             let c = point(first)
             NSBezierPath(ovalIn: CGRect(x: c.x - width / 2, y: c.y - width / 2, width: width, height: width)).fill()
@@ -180,6 +226,34 @@ final class OverlayView: NSView {
             prev = cur
         }
         path.line(to: prev)
+        path.stroke()
+    }
+
+    private func drawShape(_ s: PointerOverlay.Stroke, width: CGFloat) {
+        let a = point(s.points[0])
+        let b = point(s.points[1])
+        let path = NSBezierPath()
+        path.lineWidth = width
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        switch s.kind {
+        case "ellipse":
+            path.appendOval(in: CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y)))
+        case "rect":
+            path.appendRect(CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y)))
+        default: // line, arrow
+            path.move(to: a)
+            path.line(to: b)
+            if s.kind == "arrow", hypot(b.x - a.x, b.y - a.y) > 1 {
+                let angle = atan2(b.y - a.y, b.x - a.x)
+                let head = max(width * 4, 14)
+                for side in [-1.0, 1.0] {
+                    let ang = angle + .pi - side * .pi / 7
+                    path.move(to: b)
+                    path.line(to: CGPoint(x: b.x + head * cos(ang), y: b.y + head * sin(ang)))
+                }
+            }
+        }
         path.stroke()
     }
 }

@@ -221,6 +221,8 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
             enqueueState(s)
         case "deck":
             enqueueDeck(s)
+        case "sounds":
+            enqueueJSON(hub.sounds.listObject(), to: s)
         case "fmt":
             let f = ImageFormat.best(from: arg)
             if f != s.format {

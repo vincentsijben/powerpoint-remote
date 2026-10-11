@@ -9,8 +9,8 @@
   <meta name="theme-color" content="#111418">
   <title>PPT Remote</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -35,16 +35,34 @@
           <div id="currentMsg" class="slidemsg"></div>
           <div id="blackBadge" class="badge hidden">Screen is black</div>
           <div id="slideTools" class="slidetools hidden">
-            <button id="laserBtn" class="stool" title="Laser pointer: touch the slide" aria-label="Laser pointer">●</button>
-            <button id="penBtn" class="stool" title="Pen: draw on the slide" aria-label="Pen">✎</button>
+            <div class="toolrow1">
+              <button id="laserBtn" class="stool" title="Laser pointer: touch the slide" aria-label="Laser pointer">●</button>
+              <button id="penBtn" class="stool" title="Pen and shapes: draw on the slide" aria-label="Pen">✎</button>
+              <button id="wbBtn" class="stool" title="Whiteboard: a blank page over the slide" aria-label="Whiteboard">▢</button>
+              <button id="eraseBtn" class="stool hidden" title="Erase drawings on this page" aria-label="Erase drawings">⌫</button>
+              <button id="fsBtn" class="stool" title="Big slide (full screen)" aria-label="Full screen">⤢</button>
+            </div>
             <div id="penColors" class="pencolors hidden">
+              <button class="shape on" data-shape="pen" title="Freehand" aria-label="Freehand">✎</button>
+              <button class="shape" data-shape="line" title="Straight line" aria-label="Straight line">╱</button>
+              <button class="shape" data-shape="arrow" title="Arrow" aria-label="Arrow">➚</button>
+              <button class="shape" data-shape="ellipse" title="Circle / ellipse" aria-label="Circle">◯</button>
+              <button class="shape" data-shape="rect" title="Rectangle" aria-label="Rectangle">▭</button>
+              <span class="sep"></span>
               <button class="swatch on" data-color="#ff2d2d" style="background:#ff2d2d" aria-label="Red"></button>
               <button class="swatch" data-color="#ffd60a" style="background:#ffd60a" aria-label="Yellow"></button>
               <button class="swatch" data-color="#32d74b" style="background:#32d74b" aria-label="Green"></button>
               <button class="swatch" data-color="#0a84ff" style="background:#0a84ff" aria-label="Blue"></button>
+              <button class="swatch" data-color="#111111" style="background:#111111" aria-label="Black"></button>
             </div>
-            <button id="eraseBtn" class="stool hidden" title="Erase drawings on this slide" aria-label="Erase drawings">⌫</button>
           </div>
+          <div id="bigNav" class="bignav">
+            <button id="bigPrev" class="bigbtn" aria-label="Previous slide">‹</button>
+            <span id="bigNum" class="bignum"></span>
+            <button id="bigNext" class="bigbtn" aria-label="Next slide">›</button>
+          </div>
+          <button id="bigClose" class="bigclose" aria-label="Leave big slide">✕</button>
+          <div id="rotateHint" class="rotatehint hidden">Turn your phone sideways for a bigger slide</div>
           <div id="mediaBars" class="mediabars"></div>
         </div>
         <div id="toolrow">
@@ -59,6 +77,7 @@
             <button id="endBtn" class="tool">■ End show</button>
             <button id="blackBtn" class="tool">◐ Black</button>
             <button id="gridBtn" class="tool">▦ Slides</button>
+            <button id="soundsBtn" class="tool">♪ Sounds</button>
           </div>
         </div>
       </section>
@@ -110,6 +129,20 @@
     </div>
   </div>
 
+  <!-- Soundboard -->
+  <div id="soundsView" class="overlay hidden">
+    <div class="panel">
+      <div class="panelhead"><h2>Sounds</h2><button id="soundsClose" class="iconbtn">✕</button></div>
+      <p class="sub">Plays on the Mac’s speakers.</p>
+      <div id="soundGrid" class="soundgrid"></div>
+      <div class="row">
+        <button id="soundStop" class="big">■ Stop</button>
+        <label class="vol">🔈<input id="soundVol" type="range" min="0" max="1" step="0.05"></label>
+      </div>
+      <p class="hint">Add your own sounds (mp3, m4a, wav): Mac menu bar › PPT Remote › <i>Open Sounds Folder…</i></p>
+    </div>
+  </div>
+
   <!-- Presentation picker -->
   <div id="presView" class="overlay hidden">
     <div class="panel">
@@ -140,6 +173,7 @@
       </label>
       <label class="row"><input type="checkbox" id="swipeChk"> Swipe on slide to change slides</label>
       <label class="row"><input type="checkbox" id="autoTimerChk"> Start timer when the show starts</label>
+      <label class="row"><input type="checkbox" id="vibrateChk"> Vibrate on taps (Android)</label>
       <button id="reloadBtn" class="big">Reload slides from PowerPoint</button>
       <button id="changePinBtn" class="big">Change PIN</button>
       <button id="disconnectBtn" class="big danger">Disconnect</button>
@@ -170,6 +204,7 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+  <div id="alertBar" class="alertbar hidden" role="alert"></div>
 
   <script src="protocol.js"></script>
   <script src="activity.js"></script>

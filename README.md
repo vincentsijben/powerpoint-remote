@@ -26,14 +26,22 @@ flowchart LR
 - Small **AVIF** slide images (about 5× smaller than JPEG), **stored on the device**, so reconnecting is instant and only changed slides are sent again.
 - An **activity log** (⚙︎ › *Activity log*) shows what happens behind the scenes: images being fetched, sizes, speed, and data transferred.
 - **Several presentations open?** Tap the presentation name at the top to choose which one to control. *Automatic* follows PowerPoint: the presentation in the slide show, or the one in front.
-- **Laser pointer and pen** during a slide show: tap ● or ✎ on the slide, then touch or draw. The red dot and the drawings appear on the projector, in four pen colours. ⌫ erases the drawings on that slide.
+- **Laser pointer, pen and shapes** during a slide show: tap ● or ✎ on the slide, then touch or draw. The red dot and the drawings appear on the projector. With ✎ you can also pick a straight line, arrow, circle or rectangle, in five colours. ⌫ erases the drawings on that slide.
+- **Whiteboard** (▢): a blank white page over the slide show to draw on. Tap ▢ again to go back to the slide; the whiteboard keeps its drawings until the show ends.
+- **Big slide** for drawing on a phone: choosing ● or ✎ on a phone, or tapping ⤢, shows the slide full screen with small ‹ › buttons. Turn the phone sideways and the slide fills the screen automatically, with the tools in the black bars beside it.
+- **Soundboard** (♪ Sounds): applause, drum roll, correct, wrong, ta-da, sad trombone, crickets and a gong, played on the **Mac's speakers**. You can add your own sounds (see below).
+- **Clear feedback**: a short vibration when you tap Next/Prev (Android). If a command doesn't reach the Mac, you get a red warning plus a longer vibration.
 - **Video and audio controls** when a slide has media: play/pause, back to the start, and −10 / +10 seconds.
 - **Slides grouped by section** in the slide grid, and the current section is shown next to *Notes*.
 - **Formatted notes**: bold, italic, underline, colours and bullet lists, as in PowerPoint. Plain notes appear right away. The formatting follows a moment later, because it is read in the background.
 
-## 1. Mac: build and start the helper
+## 1. Mac: install the helper
 
-You only need the Xcode Command Line Tools (`xcode-select --install`). Full Xcode is not required.
+**Easiest:** download **PPT-Remote-mac.zip** from the [latest release](https://github.com/vincentsijben/powerpoint-remote/releases/latest), unzip it and move **PPT Remote** to your *Applications* folder. It runs on Apple silicon and Intel Macs (macOS 13 or newer).
+
+The app isn't notarised by Apple (that requires a paid developer account), so the first time macOS says it *cannot be opened*. To allow it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway** next to "PPT Remote". You only need to do this once.
+
+**Or build it yourself.** You only need the Xcode Command Line Tools (`xcode-select --install`); full Xcode is not required.
 
 ```bash
 ./mac-helper/build.sh
@@ -54,7 +62,9 @@ A new icon shows up in the **menu bar**. Click it to see:
 - the **PIN**,
 - the network address with a QR code.
 
-Tip: copy the app to `/Applications` and add it under *System Settings › General › Login Items* so it starts on its own.
+Tip: with the app in *Applications*, turn on **Start at Login** in its menu so it is always ready.
+
+**Your own sounds:** choose *Open Sounds Folder…* in the menu and drop mp3, m4a or wav files in it (for example a real applause recording). They appear on the soundboard within a few seconds, named after the file.
 
 > The app is signed with a fixed identifier, so permissions stay valid after rebuilding.
 > If a permission seems stuck, run `tccutil reset BluetoothAlways local.pptremote.helper` (or `AppleEvents` / `Accessibility`) and start the app again.
@@ -123,6 +133,9 @@ Next, scan the **QR code** in the Mac menu bar with the iPad camera, or type the
 | [docs/activity.js](docs/activity.js) | Activity log and transfer statistics |
 | [mac-helper/Sources/](mac-helper/Sources/) | Swift menu bar helper: PowerPoint control (AppleScript), slide rendering (PDF → AVIF/HEIC/JPEG), Bluetooth LE GATT server, HTTP server |
 | [mac-helper/build.sh](mac-helper/build.sh) | Builds `PPT Remote.app` with `swiftc` |
+| [mac-helper/Resources/](mac-helper/Resources/) | App icon and the built-in sounds |
+| [tools/](tools/) | `make_sounds.py` synthesises the built-in sounds (needs numpy); `make_icon.swift` draws the app and web icons |
+| [.github/workflows/mac-app.yml](.github/workflows/mac-app.yml) | Builds the universal app on GitHub; a `v*` tag publishes it as a release |
 | [tests/](tests/) | Protocol tests, including a Swift ↔ JavaScript framing check |
 
 Run the tests with:
@@ -135,5 +148,5 @@ node --test tests/*.test.js
 
 The helper uses GATT service `2A4C9463-10DD-4D1D-9670-1C3D7737E942` with two characteristics:
 
-- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234 avif,heic,jpeg med` (PIN, image formats the device can show, quality), `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `fmt avif,jpeg`, `deck`, `hello`, `use <id>|auto` (choose presentation), `media play|pause|stop|seek|rel <shape> [ms]`, and pointer messages `lz x,y` / `lz off` (laser), `pd #rrggbb x,y`, `pm x,y;x,y…`, `pu` (pen, coordinates 0–10000) and `ink clear`.
+- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234 avif,heic,jpeg med` (PIN, image formats the device can show, quality), `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `fmt avif,jpeg`, `deck`, `hello`, `use <id>|auto` (choose presentation), `media play|pause|stop|seek|rel <shape> [ms]`, pointer messages `lz x,y` / `lz off` (laser), `pd #rrggbb x,y`, `pm x,y;x,y…`, `pu` (pen, coordinates 0–10000), `sd line|arrow|ellipse|rect #rrggbb x,y` + `sm x,y` (shapes), `ink clear`, `wb on|off` (whiteboard), and `sounds`, `snd play <id>`, `snd stop`, `snd vol 0.8` (soundboard).
 - **Data** `C8CBD42E-…` (notify): framed messages `[type][msgId][seq u16][total u16][payload]`. Type 1 is JSON: `state`, `auth`, `noimage`, and `deck`. State messages only include notes that haven't been sent yet, and the list of open presentations only when it changes. The `deck` message holds the sections and a content key per slide (a hash of the rendered slide), which the device uses to find stored slides. Type 2 is an image: a JSON header line (`slide`, `deck`, `key`, `fmt`, `w`, `q`, `enc`) followed by the image bytes in AVIF, HEIC or JPEG.

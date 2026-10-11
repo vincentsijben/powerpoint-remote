@@ -106,6 +106,8 @@ final class HTTPServer {
             if let n = query["n"], !n.isEmpty { c += " \(n)" }
             let ok = hub.handle(command: c)
             respondJSON(conn, ["ok": ok])
+        case "/api/sounds":
+            respondJSON(conn, hub.sounds.listObject())
         case "/api/deck":
             respondJSON(conn, hub.deckObject(format: ImageFormat.best(from: query["fmt"] ?? "jpeg")))
         case "/api/slide":

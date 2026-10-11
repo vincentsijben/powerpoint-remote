@@ -33,6 +33,7 @@ final class Hub {
     let ppt = PowerPoint()
     let images = SlideImages()
     let overlay = PointerOverlay()
+    let sounds = SoundBoard()
 
     private(set) var state = PPTState()
     private(set) var deckID = ""
@@ -103,6 +104,8 @@ final class Hub {
     }
 
     func start() {
+        sounds.onChange = { [weak self] in self?.bump() }
+        sounds.start()
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             let interval: TimeInterval = self.hasClients() ? 0.35 : 2.0
@@ -312,8 +315,10 @@ final class Hub {
         guard let cmd = parts.first?.lowercased() else { return false }
         let rest = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
         switch cmd {
-        case "lz", "pd", "pm", "pu", "ink":
+        case "lz", "pd", "pm", "pu", "ink", "sd", "sm", "wb":
             return pointer(cmd, rest)
+        case "snd":
+            return sound(rest)
         case "reload":
             reloadDeck()
             return true
@@ -374,11 +379,46 @@ final class Hub {
             overlay.penDown(color: .fromHex(f[0]), at: p)
         case "pm":
             overlay.penMove(pts(rest))
+        case "sd":
+            // "sd <line|arrow|ellipse|rect> #rrggbb x,y"
+            let f = rest.split(separator: " ").map(String.init)
+            guard f.count == 3, ["line", "arrow", "ellipse", "rect"].contains(f[0]), let p = pts(f[2]).first else { return false }
+            overlay.shapeDown(kind: f[0], color: .fromHex(f[1]), at: p)
+        case "sm":
+            guard let p = pts(rest).last else { return false }
+            overlay.shapeMove(p)
+        case "wb":
+            if rest == "clear" {
+                overlay.setWhiteboard(true)
+                overlay.clearInk()
+            } else {
+                overlay.setWhiteboard(rest == "on")
+            }
+            Log.write("Whiteboard \(overlay.whiteboard ? "on" : "off")")
+            bump()
         case "pu":
             overlay.penUp()
             bump()
         case "ink":
             overlay.clearInk()
+            bump()
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// "snd play <id>" | "snd stop" | "snd vol 0.8"
+    private func sound(_ rest: String) -> Bool {
+        let f = rest.split(separator: " ", maxSplits: 1).map(String.init)
+        switch f.first {
+        case "play" where f.count == 2:
+            sounds.play(f[1])
+        case "stop":
+            sounds.stopAll()
+        case "vol" where f.count == 2:
+            guard let v = Float(f[1]) else { return false }
+            sounds.setVolume(v)
             bump()
         default:
             return false
@@ -420,6 +460,9 @@ final class Hub {
             "hidden": hidden.enumerated().filter { $0.element }.map { $0.offset + 1 },
             "notes": notesOut,
             "ink": overlay.hasInkOnSlide,
+            "wb": overlay.whiteboard,
+            "skey": sounds.listKey,
+            "svol": sounds.volume,
             "auto": selectedFullName == nil,
             "pcount": state.open.count,
         ]
