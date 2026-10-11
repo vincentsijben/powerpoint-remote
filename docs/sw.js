@@ -1,6 +1,7 @@
-// Caches the app shell so the page can open without internet once it has been loaded before.
-const CACHE = 'pptremote-v2';
+// Caches the app so the page also opens without internet once it has been loaded before.
+const CACHE = 'pptremote-v3';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'manifest.webmanifest', 'icon.svg'];
+const NETWORK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -14,20 +15,23 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Stale-while-revalidate for the app's own files.
+// Network first (so updates arrive right away and files never mix versions); the saved copy is
+// used when there is no internet or the network is too slow.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/api/')) return;
-  e.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(e.request, { ignoreSearch: true });
-      const network = fetch(e.request)
-        .then((res) => {
-          if (res.ok) cache.put(e.request, res.clone());
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
-  );
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const network = fetch(e.request).then((res) => {
+      if (res.ok) cache.put(e.request, res.clone());
+      return res;
+    });
+    const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS));
+    try {
+      const res = await Promise.race([network, timeout]);
+      if (res) return res;
+    } catch { /* offline */ }
+    const cached = await cache.match(e.request, { ignoreSearch: true });
+    return cached || network;
+  })());
 });
