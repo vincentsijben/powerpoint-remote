@@ -64,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             addAction(menu, "Enable Direct Slide Jumps… (Accessibility)", #selector(enableJumps))
         }
+        if !LiveZoomCapture.hasPermission {
+            addAction(menu, "Enable Live Zoom… (Screen Recording)", #selector(enableZoom))
+        }
         addInfo(menu, "PIN: \(hub.pin)", bold: true)
         menu.addItem(.separator())
 
@@ -134,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func copyURL(_ sender: NSMenuItem) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sender.representedObject as? String ?? "", forType: .string)
+    }
+
+    @objc private func enableZoom() {
+        LiveZoomCapture.requestPermission(openSettings: true)
     }
 
     @objc private func enableJumps() {

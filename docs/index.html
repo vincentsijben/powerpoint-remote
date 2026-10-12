@@ -33,12 +33,14 @@
           <canvas id="inkCanvas"></canvas>
           <div id="spotShade" class="hidden"></div>
           <div id="laserDot" class="hidden"></div>
+          <div id="zoomRect" class="hidden"></div>
           <div id="currentMsg" class="slidemsg"></div>
           <div id="blackBadge" class="badge hidden">Screen is black</div>
           <div id="slideTools" class="slidetools hidden">
             <div class="toolrow1">
               <button id="laserBtn" class="stool" title="Laser pointer: touch the slide" aria-label="Laser pointer">●</button>
               <button id="spotBtn" class="stool" title="Spotlight: darken everything except where you point" aria-label="Spotlight">◎</button>
+              <button id="zoomBtn" class="stool" title="Zoom: drag a box, tap, or pinch to magnify part of the slide on the projector" aria-label="Zoom">⊕</button>
               <button id="penBtn" class="stool" title="Pen and shapes: draw on the slide" aria-label="Pen">✎</button>
               <button id="wbBtn" class="stool" title="Whiteboard: a blank page over the slide" aria-label="Whiteboard">▢</button>
               <button id="eraseBtn" class="stool hidden" title="Erase drawings on this page" aria-label="Erase drawings">⌫</button>
@@ -49,6 +51,14 @@
               <button class="shape spotsize" data-size="s" title="Small spotlight" aria-label="Small">S</button>
               <button class="shape spotsize" data-size="m" title="Medium spotlight" aria-label="Medium">M</button>
               <button class="shape spotsize" data-size="l" title="Large spotlight" aria-label="Large">L</button>
+            </div>
+            <div id="zoomBox" class="pencolors hidden">
+              <span class="plabel">Zoom</span>
+              <button id="zoomOut" class="shape" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="zoomLevel" class="plabel zoomlevel">1×</span>
+              <button id="zoomIn" class="shape" title="Zoom in" aria-label="Zoom in">+</button>
+              <button id="zoomReset" class="shape wide hidden" title="Show the whole slide" aria-label="Whole slide">1× ✕</button>
+              <span id="zoomHint" class="zoomhint hidden"></span>
             </div>
             <div id="penColors" class="pencolors hidden">
               <button class="shape on" data-shape="pen" title="Freehand" aria-label="Freehand">✎</button>

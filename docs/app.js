@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.6';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -334,7 +334,7 @@ class HttpTransport {
 
 const Hub = {
   commands: new Set(['next', 'prev', 'first', 'last', 'goto', 'start', 'starthere', 'end', 'black', 'reload',
-    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd', 'sp']),
+    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd', 'sp', 'zm']),
 };
 
 // ---------------------------------------------------------------------------
@@ -557,6 +557,7 @@ const App = {
     this.media = (s.media || []).map((m) => ({ ...m, at: now }));
     if (!s.showing) this.setTool(null, true);
     if (prev && prev.index !== s.index && this.spotAt) this.showSpot(null);
+    if (this.zoom && ((prev && prev.index !== s.index) || !s.showing || s.wb)) this.setZoom(null, false);
     if (prev && !prev.images && s.images) this.failed.clear();
     if (s.showing && !(prev && prev.showing) && prefs.autoTimer && prev) Timer.restart();
 
@@ -1073,11 +1074,16 @@ const App = {
     $('penBtn').classList.toggle('on', tool === 'pen');
     $('penColors').classList.toggle('hidden', tool !== 'pen');
     $('spotSizesBox').classList.toggle('hidden', tool !== 'spot');
+    $('zoomBtn').classList.toggle('on', tool === 'zoom');
     $('laserDot').classList.add('hidden');
     if (tool !== 'spot') this.spotOff();
+    this.zoomPointers.clear();
+    $('zoomRect').classList.add('hidden');
+    if (tool === 'zoom') this.send('zm prep');
+    this.renderZoomBox();
     // On phones the slide is small: drawing happens on the big, full-screen slide.
     if (tool && isSmallScreen() && !this.big) this.setBig(true, true);
-    const names = { laser: 'laser pointer', spot: 'spotlight', pen: this.shape === 'pen' ? 'pen' : this.shape };
+    const names = { laser: 'laser pointer', spot: 'spotlight', zoom: 'zoom', pen: this.shape === 'pen' ? 'pen' : this.shape };
     if (!silent) Activity.log(tool ? `Tool: ${names[tool]}` : 'Tool: off');
   },
 
@@ -1104,6 +1110,8 @@ const App = {
     const ink = !!(s && (s.ink || (this.inkSlides.get(this.inkPage()) || []).length));
     $('eraseBtn').classList.toggle('hidden', !on || !ink);
     $('wbBtn').classList.toggle('on', !!(s && s.wb));
+    $('zoomBtn').classList.toggle('hidden', !!(s && s.wb));
+    this.renderZoomBox();
     $('fsBtn').classList.toggle('on', this.isBig());
     $('current').classList.toggle('wb', !!(s && s.showing && s.wb));
     if (!on && this.tool) this.setTool(null, true);
@@ -1139,11 +1147,21 @@ const App = {
     $('fsBtn').classList.toggle('on', this.isBig());
     const s = this.st;
     $('bigNum').textContent = s && s.pres && s.count ? `${this.shownIndex()} / ${s.count}` : '';
-    requestAnimationFrame(() => { this.renderSlides(); this.requestInk(true); if (this.spotAt) this.showSpot(this.spotAt); });
+    requestAnimationFrame(() => { this.renderSlides(); this.applyZoomView(); });
   },
 
   /** Area of the slide inside the current-slide box (the image is letterboxed). */
+  /** The slide as shown on this device: when zoomed in, the (bigger) slide of which only a part is visible. */
   slideRect() {
+    const r = this.baseRect();
+    const z = this.zoomRegion();
+    if (!z) return r;
+    const s = 1 / z.w;
+    return { ...r, left: r.left - z.x * s * r.width, top: r.top - z.y * s * r.height, width: r.width * s, height: r.height * s, base: r };
+  },
+
+  /** Where the whole slide is shown inside the slide box (letterboxed). */
+  baseRect() {
     const box = $('current').getBoundingClientRect();
     const img = $('currentImg');
     const aspect = img.naturalWidth && img.getAttribute('src') ? img.naturalWidth / img.naturalHeight : 16 / 9;
@@ -1201,7 +1219,8 @@ const App = {
     if (this.pendingLaser) msgs.push(`lz ${this.enc(this.pendingLaser)}`);
     if (this.pendingSpot) msgs.push(`sp ${this.enc(this.pendingSpot)} ${Math.round(this.spotSizes[this.spotSize] * 10000)}`);
     if (this.pendingShapeEnd) msgs.push(`sm ${this.enc(this.pendingShapeEnd)}`);
-    this.pendingLaser = this.pendingSpot = this.pendingShapeEnd = null;
+    if (this.pendingZoom) msgs.push(`zm ${this.enc(this.pendingZoom)} ${Math.round(this.pendingZoom.s * 100)}`);
+    this.pendingLaser = this.pendingSpot = this.pendingShapeEnd = this.pendingZoom = null;
     let pts = this.pendingPoints;
     this.pendingPoints = [];
     // Slow link: thin out a big backlog so the drawing on the projector catches up.
@@ -1213,7 +1232,7 @@ const App = {
     this.pointerBusy = true;
     Promise.resolve(last).finally(() => {
       this.pointerBusy = false;
-      if (this.pendingLaser || this.pendingSpot || this.pendingShapeEnd || this.pendingPoints.length) this.scheduleFlush();
+      if (this.pendingLaser || this.pendingSpot || this.pendingShapeEnd || this.pendingZoom || this.pendingPoints.length) this.scheduleFlush();
     });
   },
 
@@ -1238,6 +1257,7 @@ const App = {
   pointerDown(e) {
     if (!this.tool) return;
     clearSelection();
+    if (this.tool === 'zoom') { this.zoomDown(e); return; }
     if (e.pointerType === 'pen') { this.pencilUsed = true; this.pencilAt = Date.now(); }
     else if (this.pencilUsed) return;
     if (this.activePointer !== null) {
@@ -1278,6 +1298,7 @@ const App = {
   },
 
   pointerMove(e) {
+    if (this.tool === 'zoom') { this.zoomMove(e); return; }
     if (!this.tool || !this.ownsPointer(e)) return;
     e.preventDefault();
     if (e.pointerType === 'pen') this.pencilAt = Date.now();
@@ -1306,6 +1327,7 @@ const App = {
   },
 
   pointerUp(e) {
+    if (this.tool === 'zoom') { this.zoomUp(e); return; }
     if (!this.tool || !this.ownsPointer(e)) return;
     this.endPointer();
   },
@@ -1417,11 +1439,13 @@ const App = {
     const pts = st.points;
     if (st.drawn >= pts.length) return true;
     const { ctx } = g;
+    this.clipInk(g);
     ctx.strokeStyle = st.color;
     ctx.beginPath();
     ctx.moveTo(g.X(pts[st.drawn - 1]), g.Y(pts[st.drawn - 1]));
     for (let i = st.drawn; i < pts.length; i++) ctx.lineTo(g.X(pts[i]), g.Y(pts[i]));
     ctx.stroke();
+    ctx.restore();
     st.drawn = pts.length;
     return true;
   },
@@ -1431,6 +1455,7 @@ const App = {
     const g = this.inkGeometry();
     const { ctx, w, h, X, Y, dpr } = g;
     ctx.clearRect(0, 0, w, h);
+    this.clipInk(g);
     const strokes = (this.st && this.st.showing && this.inkSlides.get(this.inkPage())) || [];
     for (const st of strokes) {
       ctx.strokeStyle = st.color;
@@ -1465,6 +1490,180 @@ const App = {
       }
       if (st === this.stroke) st.drawn = st.points.length;
     }
+    ctx.restore();
+  },
+
+  /** Zoomed in: keep drawings inside the visible part of the slide. */
+  clipInk(g) {
+    g.ctx.save();
+    const r = this.slideRect().base;
+    if (!r) return;
+    g.ctx.beginPath();
+    g.ctx.rect((r.left - r.boxLeft) * g.dpr, (r.top - r.boxTop) * g.dpr, r.width * g.dpr, r.height * g.dpr);
+    g.ctx.clip();
+  },
+
+  // --- zoom (live magnification of part of the slide on the projector) --------
+
+  zoom: null, // { x, y, s }: centre of the visible part (0…1) and magnification
+  zoomPointers: new Map(),
+  zoomGesture: null,
+  pendingZoom: null,
+
+  zoomRegion() {
+    if (!this.zoom || !this.st || !this.st.showing || this.st.wb) return null;
+    const w = 1 / this.zoom.s;
+    return { x: this.zoom.x - w / 2, y: this.zoom.y - w / 2, w };
+  },
+
+  /** Sets the zoom (null = whole slide) and tells the Mac unless `send` is false. */
+  setZoom(z, send = true) {
+    if (z && z.s > 1.02) {
+      const s = Math.min(8, Math.max(1, z.s));
+      const half = 0.5 / s;
+      this.zoom = { s, x: Math.min(1 - half, Math.max(half, z.x)), y: Math.min(1 - half, Math.max(half, z.y)) };
+      if (send) { this.pendingZoom = this.zoom; this.scheduleFlush(); }
+    } else {
+      const was = !!this.zoom;
+      this.zoom = null;
+      this.pendingZoom = null;
+      if (send && was && this.transport) this.transport.send('zm off', true);
+    }
+    this.applyZoomView();
+  },
+
+  /** Shows the same zoomed-in part on this device as on the projector. */
+  applyZoomView() {
+    const img = $('currentImg');
+    const z = this.zoomRegion();
+    if (!z) {
+      img.style.transform = img.style.clipPath = img.style.webkitClipPath = '';
+    } else {
+      const b = this.baseRect();
+      const s = 1 / z.w;
+      const bx = b.left - b.boxLeft;
+      const by = b.top - b.boxTop;
+      const boxW = img.clientWidth;
+      const boxH = img.clientHeight;
+      img.style.transformOrigin = '0 0';
+      img.style.transform = `translate(${bx * (1 - s) - z.x * s * b.width}px, ${by * (1 - s) - z.y * s * b.height}px) scale(${s})`;
+      const l = bx + z.x * b.width;
+      const t = by + z.y * b.height;
+      const clip = `inset(${t}px ${boxW - l - z.w * b.width}px ${boxH - t - z.w * b.height}px ${l}px)`;
+      img.style.clipPath = img.style.webkitClipPath = clip;
+    }
+    this.requestInk(true);
+    if (this.spotAt) this.showSpot(this.spotAt);
+    $('laserDot').classList.add('hidden');
+    this.renderZoomBox();
+  },
+
+  renderZoomBox() {
+    const box = $('zoomBox');
+    const show = this.tool === 'zoom' || !!this.zoomRegion();
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    $('zoomLevel').textContent = this.zoom ? `${this.zoom.s.toFixed(1)}×` : '1×';
+    $('zoomReset').classList.toggle('hidden', !this.zoom);
+    const st = this.st || {};
+    const hint = st.zoomok === false ? 'Allow Screen Recording for PPT Remote on the Mac'
+      : st.zoomok === undefined ? 'Update the Mac helper to use zoom' : '';
+    $('zoomHint').textContent = hint;
+    $('zoomHint').classList.toggle('hidden', !hint || this.tool !== 'zoom');
+  },
+
+  zoomBy(f) {
+    const z = this.zoom || { x: 0.5, y: 0.5, s: 1 };
+    this.setZoom({ ...z, s: z.s * f });
+  },
+
+  /** Centre that keeps slide point `u` under screen point `m` at magnification `s`. */
+  zoomAnchor(u, m, s) {
+    const b = this.baseRect();
+    const w = 1 / s;
+    return { s, x: u.x - ((m.x - b.left) / b.width) * w + w / 2, y: u.y - ((m.y - b.top) / b.height) * w + w / 2 };
+  },
+
+  zoomDown(e) {
+    e.preventDefault();
+    // Palm rejection: while the Pencil is down only the Pencil counts (a resting hand must not pinch).
+    if (e.pointerType === 'pen') {
+      this.pencilUsed = true;
+      this.zoomPointers.clear();
+      this.zoomPenId = e.pointerId;
+    } else if (this.zoomPenId != null && this.zoomPointers.has(this.zoomPenId)) {
+      return;
+    }
+    try { $('current').setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    this.zoomPointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pen: e.pointerType === 'pen' });
+    this.startZoomGesture();
+  },
+
+  /** (Re)starts the gesture for the fingers now down: one = pan or drag a box, two = pinch. */
+  startZoomGesture() {
+    const pts = [...this.zoomPointers.values()];
+    $('zoomRect').classList.add('hidden');
+    if (!pts.length) { this.zoomGesture = null; return; }
+    const m = pts.length > 1 ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : pts[0];
+    const u = this.toSlide({ clientX: m.x, clientY: m.y }, true);
+    this.zoomGesture = {
+      mode: pts.length > 1 ? 'pinch' : this.zoom ? 'pan' : 'box',
+      u, m, s0: this.zoom ? this.zoom.s : 1,
+      d0: pts.length > 1 ? Math.max(10, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)) : 0,
+      moved: false,
+    };
+  },
+
+  zoomMove(e) {
+    if (!this.zoomPointers.has(e.pointerId)) return;
+    e.preventDefault();
+    this.zoomPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = this.zoomGesture;
+    if (!g) return;
+    const pts = [...this.zoomPointers.values()];
+    const m = pts.length > 1 ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : pts[0];
+    if (Math.hypot(m.x - g.m.x, m.y - g.m.y) > 6) g.moved = true;
+    if (g.mode === 'pinch' && pts.length > 1) {
+      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const s = Math.min(8, Math.max(1, g.s0 * d / g.d0));
+      if (s <= 1.02) this.setZoom(null);
+      else this.setZoom(this.zoomAnchor(g.u, m, s));
+    } else if (g.mode === 'pan' && this.zoom) {
+      this.setZoom(this.zoomAnchor(g.u, m, this.zoom.s));
+    } else if (g.mode === 'box' && g.moved) {
+      const box = $('current').getBoundingClientRect();
+      Object.assign($('zoomRect').style, {
+        left: `${Math.min(g.m.x, m.x) - box.left}px`, top: `${Math.min(g.m.y, m.y) - box.top}px`,
+        width: `${Math.abs(m.x - g.m.x)}px`, height: `${Math.abs(m.y - g.m.y)}px`,
+      });
+      $('zoomRect').classList.remove('hidden');
+      g.end = m;
+    }
+  },
+
+  zoomUp(e) {
+    if (!this.zoomPointers.has(e.pointerId)) return;
+    const g = this.zoomGesture;
+    this.zoomPointers.delete(e.pointerId);
+    if (g && g.mode === 'box' && !this.zoomPointers.size) {
+      $('zoomRect').classList.add('hidden');
+      const a = g.u;
+      const b = g.end ? this.toSlide({ clientX: g.end.x, clientY: g.end.y }, true) : null;
+      if (!g.moved || !b) {
+        // A tap zooms in 2× around that point.
+        this.setZoom({ x: a.x, y: a.y, s: 2 });
+      } else {
+        // The visible part keeps the slide's shape, so fit the box's longer side (in slide units).
+        const side = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        const s = Math.min(8, Math.max(1.25, 1 / Math.max(side, 0.01)));
+        this.setZoom({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, s });
+      }
+      this.zoomGesture = null;
+      return;
+    }
+    // Pinch → one finger left: continue as panning with that finger.
+    this.startZoomGesture();
+    if (this.zoomGesture && this.zoomGesture.mode === 'box' && g && g.mode !== 'box') this.zoomGesture.mode = 'none';
   },
 
   // --- soundboard --------------------------------------------------------------
@@ -1869,6 +2068,10 @@ function init() {
   App.setSpotSize(App.spotSize);
   $('eraseBtn').addEventListener('click', (e) => { e.stopPropagation(); App.eraseInk(); });
   $('wbBtn').addEventListener('click', (e) => { e.stopPropagation(); App.toggleWhiteboard(); });
+  $('zoomBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'zoom' ? null : 'zoom'); });
+  $('zoomIn').addEventListener('click', (e) => { e.stopPropagation(); App.zoomBy(1.5); });
+  $('zoomOut').addEventListener('click', (e) => { e.stopPropagation(); App.zoomBy(1 / 1.5); });
+  $('zoomReset').addEventListener('click', (e) => { e.stopPropagation(); App.setZoom(null); });
   $('fsBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setBig(!App.isBig()); });
   $('bigClose').addEventListener('click', (e) => { e.stopPropagation(); App.setBig(false); });
   $('bigPrev').addEventListener('click', (e) => { e.stopPropagation(); pressNav(e.currentTarget, 'prev'); });
@@ -2033,7 +2236,7 @@ function init() {
     App.tickMedia();
     if (Panels.activityOpen) Panels.renderActivity(false);
   }, 500);
-  window.addEventListener('resize', () => { App.renderSlides(); App.requestInk(true); if (App.spotAt) App.showSpot(App.spotAt); });
+  window.addEventListener('resize', () => { App.renderSlides(); App.applyZoomView(); });
   App.applyBig();
   $('currentImg').addEventListener('load', () => App.requestInk(true));
   Timer.render();

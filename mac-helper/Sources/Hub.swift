@@ -315,7 +315,7 @@ final class Hub {
         guard let cmd = parts.first?.lowercased() else { return false }
         let rest = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
         switch cmd {
-        case "lz", "pd", "pm", "pu", "ink", "sd", "sm", "wb", "sp":
+        case "lz", "pd", "pm", "pu", "ink", "sd", "sm", "wb", "sp", "zm":
             return pointer(cmd, rest)
         case "snd":
             return sound(rest)
@@ -406,6 +406,18 @@ final class Hub {
                 let r = f.count > 1 ? (Double(f[1]) ?? 1600) / 10000 : 0.16
                 overlay.spotlight(p, radius: CGFloat(min(0.6, max(0.03, r))))
             }
+        case "zm":
+            // "zm x,y s" (centre of the visible part 0…10000, magnification ×100), "zm off", "zm prep"
+            if rest == "off" {
+                overlay.zoomOff()
+            } else if rest == "prep" {
+                overlay.prepareZoom()
+                if !LiveZoomCapture.hasPermission { bump() }
+            } else {
+                let f = rest.split(separator: " ").map(String.init)
+                guard f.count == 2, let c = pts(f[0]).first, let s = Double(f[1]) else { return false }
+                overlay.zoom(center: c, scale: CGFloat(s / 100))
+            }
         case "pu":
             // Only tell the remotes when "this page has drawings" changes; a state update after every
             // stroke made the remote re-render while the next letter was being written.
@@ -474,6 +486,7 @@ final class Hub {
             "notes": notesOut,
             "ink": overlay.hasInkOnSlide,
             "wb": overlay.whiteboard,
+            "zoomok": LiveZoomCapture.hasPermission,
             "skey": sounds.listKey,
             "svol": sounds.volume,
             "auto": selectedFullName == nil,

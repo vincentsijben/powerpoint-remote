@@ -28,6 +28,7 @@ flowchart LR
 - **Several presentations open?** Tap the presentation name at the top to choose which one to control. *Automatic* follows PowerPoint: the presentation in the slide show, or the one in front.
 - **Laser pointer, pen and shapes** during a slide show: tap ● or ✎ on the slide, then touch or draw. The red dot and the drawings appear on the projector. With ✎ you can also pick a straight line, arrow, circle or rectangle, in five colours. ⌫ erases the drawings on that slide. **Palm rejection:** once you've used an Apple Pencil (or another stylus), finger and palm touches no longer draw, and a hand resting on the screen doesn't select or scroll anything (reload the page to draw with a finger again).
 - **Spotlight** (◎): darkens the whole slide except a bright circle where you point, like a spyglass. The circle stays where you leave it, so you can talk about that part; S / M / L sets its size. It switches off on the next slide.
+- **Zoom** (⊕): magnify part of the slide on the projector, live. Drag a box around the part you want, tap to zoom 2× there, or pinch with two fingers; drag to move around. − / + change the magnification and *1× ✕* shows the whole slide again. You can switch to the laser, spotlight or pen while zoomed in; drawings stay in place on the slide. The zoom resets on the next slide. Needs the Screen Recording permission on the Mac.
 - **Whiteboard** (▢): a blank white page over the slide show to draw on. Tap ▢ again to go back to the slide; the whiteboard keeps its drawings until the show ends.
 - **Big slide** for drawing on a phone: choosing ● or ✎ on a phone, or tapping ⤢, shows the slide full screen with small ‹ › buttons. Turn the phone sideways and the slide fills the screen automatically, with the tools in the black bars beside it.
 - **Soundboard** (♪ Sounds): applause, drum roll, correct, wrong, ta-da, sad trombone, crickets and a gong, played on the **Mac's speakers**. You can add your own sounds (see below).
@@ -55,6 +56,7 @@ The first time it runs, macOS asks for some permissions. Allow all of them:
 - **Control "Microsoft PowerPoint"** (Automation): to change slides and read notes.
 - **Incoming network connections** (only if the firewall asks): needed for network mode.
 - **Accessibility** (optional): lets the helper jump straight to a slide during a slide show. PowerPoint's scripting can only step one slide at a time, so the helper types the slide number + Return for you. Turn it on via the menu item *Enable Direct Slide Jumps…*. Without it, jumps still work, but the projector briefly shows every slide in between. The laser pointer and pen don't need this permission: the helper draws them in its own see-through window on top of the slide show.
+- **Screen Recording** (optional): needed for *live zoom*. The helper magnifies what's on the slide show screen (including builds and playing videos) without recording or saving anything. Turn it on via the menu item *Enable Live Zoom…*; macOS may ask to quit and reopen PPT Remote. While zoomed in, and for 20 seconds after, macOS shows its screen-recording icon in the menu bar.
 
 A new icon shows up in the **menu bar**. Click it to see:
 
@@ -68,7 +70,7 @@ Tip: with the app in *Applications*, turn on **Start at Login** in its menu so i
 **Your own sounds:** choose *Open Sounds Folder…* in the menu and drop mp3, m4a or wav files in it (for example a real applause recording). They appear on the soundboard within a few seconds, named after the file.
 
 > The app is signed with a fixed identifier, so permissions stay valid after rebuilding.
-> If a permission seems stuck, run `tccutil reset BluetoothAlways local.pptremote.helper` (or `AppleEvents` / `Accessibility`) and start the app again.
+> If a permission seems stuck, run `tccutil reset BluetoothAlways local.pptremote.helper` (or `AppleEvents` / `Accessibility` / `ScreenCapture`) and start the app again.
 
 ## 2. The web app (already online)
 
@@ -149,5 +151,5 @@ node --test tests/*.test.js
 
 The helper uses GATT service `2A4C9463-10DD-4D1D-9670-1C3D7737E942` with two characteristics:
 
-- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234 avif,heic,jpeg med` (PIN, image formats the device can show, quality), `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `fmt avif,jpeg`, `deck`, `hello`, `use <id>|auto` (choose presentation), `media play|pause|stop|seek|rel <shape> [ms]`, pointer messages `lz x,y` / `lz off` (laser), `pd #rrggbb x,y`, `pm x,y;x,y…`, `pu` (pen, coordinates 0–10000), `sd line|arrow|ellipse|rect #rrggbb x,y` + `sm x,y` (shapes), `ink clear`, `sp x,y r` / `sp off` (spotlight, radius 0–10000 of the slide height), `wb on|off` (whiteboard), and `sounds`, `snd play <id>`, `snd stop`, `snd vol 0.8` (soundboard).
+- **Command** `41D625BB-…` (write): UTF-8 text commands such as `auth 1234 avif,heic,jpeg med` (PIN, image formats the device can show, quality), `next`, `prev`, `goto 5`, `start`, `starthere`, `end`, `black`, `reload`, `img 3,4`, `imgclear`, `quality low|med|high`, `fmt avif,jpeg`, `deck`, `hello`, `use <id>|auto` (choose presentation), `media play|pause|stop|seek|rel <shape> [ms]`, pointer messages `lz x,y` / `lz off` (laser), `pd #rrggbb x,y`, `pm x,y;x,y…`, `pu` (pen, coordinates 0–10000), `sd line|arrow|ellipse|rect #rrggbb x,y` + `sm x,y` (shapes), `ink clear`, `sp x,y r` / `sp off` (spotlight, radius 0–10000 of the slide height), `zm x,y s` / `zm off` / `zm prep` (live zoom: centre of the visible part and magnification ×100), `wb on|off` (whiteboard), and `sounds`, `snd play <id>`, `snd stop`, `snd vol 0.8` (soundboard).
 - **Data** `C8CBD42E-…` (notify): framed messages `[type][msgId][seq u16][total u16][payload]`. Type 1 is JSON: `state`, `auth`, `noimage`, and `deck`. State messages only include notes that haven't been sent yet, and the list of open presentations only when it changes. The `deck` message holds the sections and a content key per slide (a hash of the rendered slide), which the device uses to find stored slides. Type 2 is an image: a JSON header line (`slide`, `deck`, `key`, `fmt`, `w`, `q`, `enc`) followed by the image bytes in AVIF, HEIC or JPEG.

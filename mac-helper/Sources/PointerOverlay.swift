@@ -15,6 +15,14 @@ final class PointerOverlay {
 
     private var window: NSWindow?
     private let view = OverlayView()
+    private let zoomView = ZoomView(frame: .zero)
+    private let capture = LiveZoomCapture()
+    private var showFrame: CGRect = .zero
+    /// Zoom wanted by the remote (centre of the visible part, 0…1, and magnification) and the one shown now.
+    private var zoomTarget: (c: CGPoint, s: CGFloat)?
+    private var zoomNow: (c: CGPoint, s: CGFloat) = (CGPoint(x: 0.5, y: 0.5), 1)
+    private var zoomTimer: Timer?
+    private(set) var zoomed = false
     private var strokesBySlide: [Int: [Stroke]] = [:]
     private var slide = 0
     private var laserTimer: Timer?
@@ -41,6 +49,7 @@ final class PointerOverlay {
         }
         if newSlide != slide {
             slide = newSlide
+            resetZoom()
             view.spot = nil
             view.needsDisplay = true
             if !whiteboard {
@@ -52,8 +61,14 @@ final class PointerOverlay {
         }
         let win = window ?? makeWindow()
         let frame = Self.cocoaFrame(fromTopLeft: bounds)
-        if win.frame != frame { win.setFrame(frame, display: true) }
+        showFrame = bounds
+        if win.frame != frame {
+            win.setFrame(frame, display: true)
+            if capture.isRunning { capture.start(frame: bounds) }
+            layoutZoom()
+        }
         view.isHidden = black && !whiteboard
+        zoomView.isHidden = black || whiteboard
         if !win.isVisible { win.orderFrontRegardless() }
         refreshInkFlag()
     }
@@ -73,6 +88,89 @@ final class PointerOverlay {
     func spotlight(_ p: CGPoint?, radius: CGFloat) {
         view.spot = p
         view.spotRadius = radius
+        view.needsDisplay = true
+    }
+
+    // MARK: - Live zoom
+
+    /// Starts the screen capture ahead of time so the first zoom is instant.
+    func prepareZoom() {
+        guard LiveZoomCapture.hasPermission, window?.isVisible == true, showFrame.width > 10 else { return }
+        capture.start(frame: showFrame)
+    }
+
+    /// Magnifies the slide on the projector: `center` of the visible part (0…1) and `scale` (1 = whole slide).
+    func zoom(center: CGPoint, scale: CGFloat) {
+        guard !whiteboard, window?.isVisible == true else { return }
+        guard LiveZoomCapture.hasPermission else {
+            Log.write("Live zoom needs the Screen Recording permission")
+            LiveZoomCapture.requestPermission(openSettings: false)
+            return
+        }
+        let s = min(8, max(1, scale))
+        zoomTarget = (Self.clampCenter(center, scale: s), s)
+        capture.start(frame: showFrame)
+        if zoomView.hasFrame { animateZoom() }
+    }
+
+    func zoomOff() {
+        guard zoomTarget != nil || zoomed else { return }
+        zoomTarget = (CGPoint(x: 0.5, y: 0.5), 1)
+        animateZoom()
+        capture.stopSoon()
+    }
+
+    private func resetZoom() {
+        zoomTimer?.invalidate()
+        zoomTimer = nil
+        zoomTarget = nil
+        zoomNow = (CGPoint(x: 0.5, y: 0.5), 1)
+        zoomed = false
+        zoomView.clear()
+        view.region = CGRect(x: 0, y: 0, width: 1, height: 1)
+        view.needsDisplay = true
+        if capture.isRunning { capture.stopSoon() }
+    }
+
+    private static func clampCenter(_ c: CGPoint, scale s: CGFloat) -> CGPoint {
+        let half = 0.5 / s
+        return CGPoint(x: min(1 - half, max(half, c.x)), y: min(1 - half, max(half, c.y)))
+    }
+
+    private static func region(_ z: (c: CGPoint, s: CGFloat)) -> CGRect {
+        let w = 1 / z.s
+        return CGRect(x: z.c.x - w / 2, y: z.c.y - w / 2, width: w, height: w)
+    }
+
+    /// Glides towards the wanted zoom (also smooths the stream of updates during a pinch).
+    private func animateZoom() {
+        guard zoomTimer == nil else { return }
+        zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] t in
+            guard let self, let target = self.zoomTarget else { t.invalidate(); self?.zoomTimer = nil; return }
+            let k: CGFloat = 0.3
+            var now = self.zoomNow
+            // Interpolate the scale logarithmically so zooming feels even.
+            now.s = exp(log(now.s) + (log(target.s) - log(now.s)) * k)
+            now.c = CGPoint(x: now.c.x + (target.c.x - now.c.x) * k, y: now.c.y + (target.c.y - now.c.y) * k)
+            let done = abs(now.s - target.s) < 0.002 && abs(now.c.x - target.c.x) < 0.0005 && abs(now.c.y - target.c.y) < 0.0005
+            if done { now = target }
+            now.c = Self.clampCenter(now.c, scale: now.s)
+            self.zoomNow = now
+            self.layoutZoom()
+            if done {
+                t.invalidate()
+                self.zoomTimer = nil
+                if target.s <= 1.0001 { self.zoomTarget = nil }
+            }
+        }
+    }
+
+    private func layoutZoom() {
+        let active = zoomNow.s > 1.0001
+        zoomed = active
+        let region = active ? Self.region(zoomNow) : CGRect(x: 0, y: 0, width: 1, height: 1)
+        view.region = region
+        zoomView.layout(slide: view.slideRect, region: active ? region : nil)
         view.needsDisplay = true
     }
 
@@ -113,6 +211,8 @@ final class PointerOverlay {
         guard on != whiteboard else { return }
         whiteboard = on
         view.whiteboard = on
+        if on { resetZoom() }
+        zoomView.isHidden = on
         view.current = nil
         view.laser = nil
         view.strokes = strokesBySlide[page] ?? []
@@ -141,6 +241,8 @@ final class PointerOverlay {
     }
 
     private func hide() {
+        resetZoom()
+        capture.stopNow()
         window?.orderOut(nil)
         view.laser = nil
         view.spot = nil
@@ -157,8 +259,19 @@ final class PointerOverlay {
         // Needed to appear over PowerPoint's full-screen slide show.
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         win.isReleasedWhenClosed = false
-        win.contentView = view
+        let container = NSView(frame: .zero)
+        zoomView.autoresizingMask = [.width, .height]
+        view.autoresizingMask = [.width, .height]
+        container.addSubview(zoomView)
+        container.addSubview(view)
+        win.contentView = container
         view.slideAspect = slideAspect
+        capture.onFrame = { [weak self] surface in
+            guard let self else { return }
+            let first = !self.zoomView.hasFrame
+            self.zoomView.show(frame: surface)
+            if first { self.animateZoom() }
+        }
         window = win
         return win
     }
@@ -178,11 +291,13 @@ final class OverlayView: NSView {
     var whiteboard = false
     var spot: CGPoint?
     var spotRadius: CGFloat = 0.16
+    /// Part of the slide shown when zoomed in (0…1); the whole slide normally.
+    var region = CGRect(x: 0, y: 0, width: 1, height: 1)
 
     override var isFlipped: Bool { true }
 
     /// The slide's area inside the (letterboxed) slide show window.
-    private var slideRect: CGRect {
+    var slideRect: CGRect {
         let b = bounds
         guard b.width > 0, b.height > 0 else { return b }
         if b.width / b.height > slideAspect {
@@ -195,7 +310,8 @@ final class OverlayView: NSView {
 
     private func point(_ p: CGPoint) -> CGPoint {
         let r = slideRect
-        return CGPoint(x: r.minX + p.x * r.width, y: r.minY + p.y * r.height)
+        let g = region
+        return CGPoint(x: r.minX + (p.x - g.minX) / g.width * r.width, y: r.minY + (p.y - g.minY) / g.height * r.height)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -204,11 +320,17 @@ final class OverlayView: NSView {
             NSColor.white.setFill()
             bounds.fill()
         }
-        let lineWidth = max(3, r.height * 0.007)
+        let mag = 1 / region.width
+        let lineWidth = max(3, r.height * 0.007) * mag
+        let ctx = NSGraphicsContext.current?.cgContext
+        ctx?.saveGState()
+        // Zoomed in: drawings outside the visible part must not spill into the letterbox bars.
+        if mag > 1 { ctx?.clip(to: r) }
         for s in strokes + (current.map { [$0] } ?? []) {
             draw(stroke: s, width: lineWidth)
         }
-        if let sp = spot { drawSpotlight(at: point(sp), radius: spotRadius * r.height) }
+        ctx?.restoreGState()
+        if let sp = spot { drawSpotlight(at: point(sp), radius: spotRadius * r.height * mag) }
         if let l = laser {
             let c = point(l)
             let size = max(14, r.height * 0.016)
