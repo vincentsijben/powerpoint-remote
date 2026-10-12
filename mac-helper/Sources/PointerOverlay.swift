@@ -41,6 +41,8 @@ final class PointerOverlay {
         }
         if newSlide != slide {
             slide = newSlide
+            view.spot = nil
+            view.needsDisplay = true
             if !whiteboard {
                 view.laser = nil
                 view.current = nil
@@ -65,6 +67,13 @@ final class PointerOverlay {
             self?.view.laser = nil
             self?.view.needsDisplay = true
         }
+    }
+
+    /// Darkens everything except a circle around `p` (radius as a fraction of the slide height); nil = off.
+    func spotlight(_ p: CGPoint?, radius: CGFloat) {
+        view.spot = p
+        view.spotRadius = radius
+        view.needsDisplay = true
     }
 
     func penDown(color: NSColor, at p: CGPoint) {
@@ -127,6 +136,7 @@ final class PointerOverlay {
     private func hide() {
         window?.orderOut(nil)
         view.laser = nil
+        view.spot = nil
         view.current = nil
     }
 
@@ -159,6 +169,8 @@ final class OverlayView: NSView {
     var current: PointerOverlay.Stroke?
     var laser: CGPoint?
     var whiteboard = false
+    var spot: CGPoint?
+    var spotRadius: CGFloat = 0.16
 
     override var isFlipped: Bool { true }
 
@@ -189,6 +201,7 @@ final class OverlayView: NSView {
         for s in strokes + (current.map { [$0] } ?? []) {
             draw(stroke: s, width: lineWidth)
         }
+        if let sp = spot { drawSpotlight(at: point(sp), radius: spotRadius * r.height) }
         if let l = laser {
             let c = point(l)
             let size = max(14, r.height * 0.016)
@@ -227,6 +240,27 @@ final class OverlayView: NSView {
         }
         path.line(to: prev)
         path.stroke()
+    }
+
+    /// Dark veil over the whole screen with a soft-edged hole: a "spyglass" on one part of the slide.
+    private func drawSpotlight(at c: CGPoint, radius: CGFloat) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let shade = CGColor(gray: 0, alpha: 0.72)
+        let outer = radius * 1.08
+        let veil = CGMutablePath()
+        veil.addRect(bounds)
+        veil.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
+        ctx.addPath(veil)
+        ctx.setFillColor(shade)
+        ctx.fillPath(using: .evenOdd)
+        // Soft edge: fade from clear to the veil colour around the rim.
+        guard let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
+                                    colors: [CGColor(gray: 0, alpha: 0), shade] as CFArray, locations: [0, 1]) else { return }
+        ctx.saveGState()
+        ctx.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
+        ctx.clip()
+        ctx.drawRadialGradient(grad, startCenter: c, startRadius: radius * 0.92, endCenter: c, endRadius: outer, options: [])
+        ctx.restoreGState()
     }
 
     private func drawShape(_ s: PointerOverlay.Stroke, width: CGFloat) {

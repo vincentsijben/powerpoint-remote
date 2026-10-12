@@ -315,7 +315,7 @@ final class Hub {
         guard let cmd = parts.first?.lowercased() else { return false }
         let rest = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
         switch cmd {
-        case "lz", "pd", "pm", "pu", "ink", "sd", "sm", "wb":
+        case "lz", "pd", "pm", "pu", "ink", "sd", "sm", "wb", "sp":
             return pointer(cmd, rest)
         case "snd":
             return sound(rest)
@@ -396,9 +396,22 @@ final class Hub {
             }
             Log.write("Whiteboard \(overlay.whiteboard ? "on" : "off")")
             bump()
+        case "sp":
+            // "sp x,y r" (radius 0…10000 of the slide height) or "sp off"
+            if rest == "off" {
+                overlay.spotlight(nil, radius: 0)
+            } else {
+                let f = rest.split(separator: " ").map(String.init)
+                guard let p = pts(f[0]).first else { return false }
+                let r = f.count > 1 ? (Double(f[1]) ?? 1600) / 10000 : 0.16
+                overlay.spotlight(p, radius: CGFloat(min(0.6, max(0.03, r))))
+            }
         case "pu":
+            // Only tell the remotes when "this page has drawings" changes; a state update after every
+            // stroke made the remote re-render while the next letter was being written.
+            let had = overlay.hasInkOnSlide
             overlay.penUp()
-            bump()
+            if overlay.hasInkOnSlide != had { bump() }
         case "ink":
             overlay.clearInk()
             bump()

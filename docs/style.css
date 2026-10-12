@@ -213,6 +213,11 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 /* Laser pointer, pen and media controls on the current slide */
 #current.drawing { touch-action: none; cursor: crosshair; }
 #inkCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#spotShade { position: absolute; pointer-events: none; }
+#spotBtn { color: #ffe08a; }
+#spotBtn.on { color: #111; background: #ffd60a; border-color: #ffd60a; }
+.pencolors .plabel { color: #dfe6ee; font-size: 13px; padding: 0 6px; }
+.spotsize { font-weight: 700; font-size: 13px; }
 #laserDot {
   position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none;
   background: #ff2d2d; box-shadow: 0 0 0 8px rgba(255, 45, 45, .3), 0 0 18px 6px rgba(255, 45, 45, .6);
@@ -360,8 +365,8 @@ body.bigslide .swatch { width: 26px; height: 26px; }
 #soundStop { min-width: 110px; }
 
 
-/* Big slide in landscape: tools in the black bars beside the slide instead of over it */
-@media (orientation: landscape) {
+/* Big slide on screens wider than the slide (phones sideways): tools in the black bars beside it */
+@media (min-aspect-ratio: 16/10) {
   body.bigslide .slidetools { flex-direction: row-reverse; align-items: flex-start; }
   body.bigslide .toolrow1 { flex-direction: column; }
   body.bigslide .pencolors {
@@ -373,4 +378,10 @@ body.bigslide .swatch { width: 26px; height: 26px; }
   body.bigslide .pencolors .shape { width: 28px; height: 28px; font-size: 14px; }
   body.bigslide .pencolors .swatch { width: 22px; height: 22px; }
   body.bigslide .bigclose { top: auto; left: auto; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); }
+}
+
+/* The spotlight sizes are a short row; keep it horizontal there too */
+@media (min-aspect-ratio: 16/10) {
+  body.bigslide #spotSizesBox { flex-direction: row; top: auto; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: none; }
+  body.bigslide #spotSizesBox .plabel { display: none; }
 }

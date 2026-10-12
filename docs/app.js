@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -329,7 +329,7 @@ class HttpTransport {
 
 const Hub = {
   commands: new Set(['next', 'prev', 'first', 'last', 'goto', 'start', 'starthere', 'end', 'black', 'reload',
-    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd']),
+    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd', 'sp']),
 };
 
 // ---------------------------------------------------------------------------
@@ -551,6 +551,7 @@ const App = {
     const now = Date.now();
     this.media = (s.media || []).map((m) => ({ ...m, at: now }));
     if (!s.showing) this.setTool(null, true);
+    if (prev && prev.index !== s.index && this.spotAt) this.showSpot(null);
     if (prev && !prev.images && s.images) this.failed.clear();
     if (s.showing && !(prev && prev.showing) && prefs.autoTimer && prev) Timer.restart();
 
@@ -824,7 +825,12 @@ const App = {
     this.renderTools();
     this.renderSlideTools();
     this.renderMedia();
-    this.renderInk();
+    // Redraw ink only when the page or its drawings changed (state updates arrive often while drawing).
+    const inkKey = `${this.inkPage()}|${(this.inkSlides.get(this.inkPage()) || []).length}|${s && s.showing}`;
+    if (inkKey !== this.inkKey) {
+      this.inkKey = inkKey;
+      this.requestInk(true);
+    }
     $('sectionName').textContent = this.sectionOf(this.shownIndex()) || '';
     $('bigNum').textContent = s && s.pres && s.count ? `${this.shownIndex()} / ${s.count}` : '';
   },
@@ -886,6 +892,10 @@ const App = {
     const idx = this.shownIndex();
     const text = this.notes[String(idx)];
     const rich = this.rich[String(idx)];
+    // Unchanged: keep the DOM (and the reader's scroll position) as it is.
+    const notesKey = [idx, s.loading, text, rich];
+    if (this.notesKey && notesKey.every((v, i) => v === this.notesKey[i])) return;
+    this.notesKey = notesKey;
     if (rich && rich.length) {
       el.classList.remove('empty');
       el.replaceChildren(renderRichNotes(rich));
@@ -1051,12 +1061,16 @@ const App = {
     this.tool = tool;
     $('current').classList.toggle('drawing', !!tool);
     $('laserBtn').classList.toggle('on', tool === 'laser');
+    $('spotBtn').classList.toggle('on', tool === 'spot');
     $('penBtn').classList.toggle('on', tool === 'pen');
     $('penColors').classList.toggle('hidden', tool !== 'pen');
+    $('spotSizesBox').classList.toggle('hidden', tool !== 'spot');
     $('laserDot').classList.add('hidden');
+    if (tool !== 'spot') this.spotOff();
     // On phones the slide is small: drawing happens on the big, full-screen slide.
     if (tool && isSmallScreen() && !this.big) this.setBig(true, true);
-    if (!silent) Activity.log(tool ? `Tool: ${tool === 'laser' ? 'laser pointer' : this.shape === 'pen' ? 'pen' : this.shape}` : 'Tool: off');
+    const names = { laser: 'laser pointer', spot: 'spotlight', pen: this.shape === 'pen' ? 'pen' : this.shape };
+    if (!silent) Activity.log(tool ? `Tool: ${names[tool]}` : 'Tool: off');
   },
 
   setShape(shape) {
@@ -1117,7 +1131,7 @@ const App = {
     $('fsBtn').classList.toggle('on', this.isBig());
     const s = this.st;
     $('bigNum').textContent = s && s.pres && s.count ? `${this.shownIndex()} / ${s.count}` : '';
-    requestAnimationFrame(() => { this.renderSlides(); this.renderInk(); });
+    requestAnimationFrame(() => { this.renderSlides(); this.requestInk(true); if (this.spotAt) this.showSpot(this.spotAt); });
   },
 
   /** Area of the slide inside the current-slide box (the image is letterboxed). */
@@ -1147,32 +1161,58 @@ const App = {
   pendingPoints: [],
   pendingLaser: null,
   pendingShapeEnd: null,
+  pendingSpot: null,
   flushTimer: null,
+  pointerBusy: false,
   stroke: null,
+
+  /** Spotlight radius as a fraction of the slide height. */
+  spotSizes: { s: 0.1, m: 0.16, l: 0.25 },
+  spotSize: store.get('spotSize', 'm'),
+  spotAt: null,
 
   /** Pointer moves are batched (about 25 per second) so Bluetooth isn't flooded. */
   scheduleFlush() {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      this.flushPointer();
+      this.flushPointer(false);
     }, 40);
   },
 
-  flushPointer() {
-    if (!this.transport) return;
-    if (this.pendingLaser) {
-      this.transport.send(`lz ${this.enc(this.pendingLaser)}`, true);
-      this.pendingLaser = null;
-    }
-    if (this.pendingShapeEnd) {
-      this.transport.send(`sm ${this.enc(this.pendingShapeEnd)}`, true);
-      this.pendingShapeEnd = null;
-    }
-    while (this.pendingPoints.length) {
-      const batch = this.pendingPoints.splice(0, 12);
-      this.transport.send(`pm ${batch.map((p) => this.enc(p)).join(';')}`, true);
-    }
+  /**
+   * Sends pending pointer updates. Only one batch is on its way at a time: while Bluetooth is busy,
+   * points pile up and go together, instead of building a growing queue (which made writing lag).
+   * @param {boolean} force  send everything now (pen lifted), keeping the order of messages
+   */
+  flushPointer(force) {
+    const t = this.transport;
+    if (!t) return;
+    if (this.pointerBusy && !force) return;
+    const msgs = [];
+    if (this.pendingLaser) msgs.push(`lz ${this.enc(this.pendingLaser)}`);
+    if (this.pendingSpot) msgs.push(`sp ${this.enc(this.pendingSpot)} ${Math.round(this.spotSizes[this.spotSize] * 10000)}`);
+    if (this.pendingShapeEnd) msgs.push(`sm ${this.enc(this.pendingShapeEnd)}`);
+    this.pendingLaser = this.pendingSpot = this.pendingShapeEnd = null;
+    let pts = this.pendingPoints;
+    this.pendingPoints = [];
+    // Slow link: thin out a big backlog so the drawing on the projector catches up.
+    if (!force && pts.length > 36) pts = pts.filter((_, i) => i % Math.ceil(pts.length / 24) === 0 || i === pts.length - 1);
+    for (let i = 0; i < pts.length; i += 12) msgs.push(`pm ${pts.slice(i, i + 12).map((q) => this.enc(q)).join(';')}`);
+    if (!msgs.length) return;
+    let last;
+    for (const m of msgs) last = t.send(m, true);
+    this.pointerBusy = true;
+    Promise.resolve(last).finally(() => {
+      this.pointerBusy = false;
+      if (this.pendingLaser || this.pendingSpot || this.pendingShapeEnd || this.pendingPoints.length) this.scheduleFlush();
+    });
+  },
+
+  /** All positions of a move, including the in-between ones the browser merged (Apple Pencil: up to 240/s). */
+  eventPoints(e) {
+    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    return (list.length ? list : [e]).map((ev) => this.toSlide(ev, true));
   },
 
   pointerDown(e) {
@@ -1187,36 +1227,49 @@ const App = {
       this.scheduleFlush();
       return;
     }
-    this.flushPointer();
+    if (this.tool === 'spot') {
+      this.pendingSpot = p;
+      this.showSpot(p);
+      this.scheduleFlush();
+      return;
+    }
+    this.flushPointer(true);
     const kind = this.shape;
-    this.stroke = { kind, color: this.penColor, points: kind === 'pen' ? [p] : [p, p] };
+    this.stroke = { kind, color: this.penColor, points: kind === 'pen' ? [p] : [p, p], drawn: 0 };
     const page = this.inkPage();
     const list = this.inkSlides.get(page) || [];
+    const first = !list.length;
     list.push(this.stroke);
     this.inkSlides.set(page, list);
     if (kind === 'pen') this.transport.send(`pd ${this.penColor} ${this.enc(p)}`, true);
     else this.transport.send(`sd ${kind} ${this.penColor} ${this.enc(p)}`, true);
-    this.renderInk();
-    this.renderSlideTools();
+    this.requestInk(kind !== 'pen');
+    if (first) this.renderSlideTools();
   },
 
   pointerMove(e) {
     if (!this.tool || !$('current').hasPointerCapture(e.pointerId)) return;
-    const p = this.toSlide(e, true);
     e.preventDefault();
+    const pts = this.eventPoints(e);
+    const p = pts[pts.length - 1];
     if (this.tool === 'laser') {
       this.pendingLaser = p;
       this.showLaser(p);
+    } else if (this.tool === 'spot') {
+      this.pendingSpot = p;
+      this.showSpot(p);
     } else if (this.stroke && this.stroke.kind !== 'pen') {
       this.stroke.points[1] = p;
       this.pendingShapeEnd = p;
-      this.renderInk();
+      this.requestInk(true);
     } else if (this.stroke) {
-      const last = this.stroke.points[this.stroke.points.length - 1];
-      if (Math.abs(last.x - p.x) + Math.abs(last.y - p.y) < 0.002) return;
-      this.stroke.points.push(p);
-      this.pendingPoints.push(p);
-      this.renderInk();
+      for (const q of pts) {
+        const last = this.stroke.points[this.stroke.points.length - 1];
+        if (Math.abs(last.x - q.x) + Math.abs(last.y - q.y) < 0.0015) continue;
+        this.stroke.points.push(q);
+        this.pendingPoints.push(q);
+      }
+      this.requestInk(false);
     }
     this.scheduleFlush();
   },
@@ -1225,7 +1278,7 @@ const App = {
     if (!this.tool) return;
     clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    this.flushPointer();
+    this.flushPointer(true);
     if (this.tool === 'laser') {
       this.transport.send('lz off', true);
       $('laserDot').classList.add('hidden');
@@ -1233,6 +1286,7 @@ const App = {
       this.transport.send('pu', true);
       this.stroke = null;
     }
+    // The spotlight stays where it was left, so you can talk about that part of the slide.
   },
 
   showLaser(p) {
@@ -1243,35 +1297,105 @@ const App = {
     dot.classList.remove('hidden');
   },
 
+  /** Darkens the slide on this device except a circle around the spotlight. */
+  showSpot(p) {
+    this.spotAt = p;
+    const shade = $('spotShade');
+    if (!p) {
+      shade.classList.add('hidden');
+      return;
+    }
+    const r = this.slideRect();
+    const rad = this.spotSizes[this.spotSize] * r.height;
+    Object.assign(shade.style, { left: `${r.left - r.boxLeft}px`, top: `${r.top - r.boxTop}px`, width: `${r.width}px`, height: `${r.height}px` });
+    shade.style.background = `radial-gradient(circle at ${p.x * r.width}px ${p.y * r.height}px, transparent ${rad * 0.92}px, rgba(0,0,0,.72) ${rad * 1.08}px)`;
+    shade.classList.remove('hidden');
+  },
+
+  setSpotSize(size) {
+    this.spotSize = size;
+    store.set('spotSize', size);
+    document.querySelectorAll('.spotsize').forEach((x) => x.classList.toggle('on', x.dataset.size === size));
+    if (this.spotAt) {
+      this.pendingSpot = this.spotAt;
+      this.showSpot(this.spotAt);
+      this.scheduleFlush();
+    }
+  },
+
+  spotOff() {
+    if (!this.spotAt) return;
+    this.showSpot(null);
+    this.pendingSpot = null;
+    if (this.transport) this.transport.send('sp off', true);
+  },
+
   eraseInk() {
     this.inkSlides.delete(this.inkPage());
     this.send('ink clear');
-    this.renderInk();
+    this.requestInk(true);
     this.renderSlideTools();
   },
 
-  /** Draws this device's strokes for the shown page on the canvas over the slide image. */
-  renderInk() {
+  inkFrame: 0,
+  inkFull: false,
+  inkKey: '',
+
+  /** Draws on the next animation frame (at most once per frame); `full` redraws every stroke. */
+  requestInk(full) {
+    if (full) this.inkFull = true;
+    if (this.inkFrame) return;
+    this.inkFrame = requestAnimationFrame(() => {
+      this.inkFrame = 0;
+      const fullNow = this.inkFull;
+      this.inkFull = false;
+      if (fullNow || !this.drawStrokeTail()) this.renderInk();
+    });
+  },
+
+  /** Canvas transform for the slide area. */
+  inkGeometry() {
     const canvas = $('inkCanvas');
     const box = $('current');
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(box.clientWidth * dpr);
     const h = Math.round(box.clientHeight * dpr);
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-    const ctx = canvas.getContext('2d');
+    const resized = canvas.width !== w || canvas.height !== h;
+    if (resized) { canvas.width = w; canvas.height = h; }
+    const r = this.slideRect();
+    const g = { ctx: canvas.getContext('2d'), dpr, w, h, ox: (r.left - r.boxLeft) * dpr, oy: (r.top - r.boxTop) * dpr, sw: r.width * dpr, sh: r.height * dpr, resized };
+    g.X = (p) => g.ox + p.x * g.sw;
+    g.Y = (p) => g.oy + p.y * g.sh;
+    g.ctx.lineCap = 'round';
+    g.ctx.lineJoin = 'round';
+    g.ctx.lineWidth = Math.max(2, g.sh * 0.007);
+    return g;
+  },
+
+  /** Only the new part of the freehand line being drawn: keeps the pencil smooth however much is on the page. */
+  drawStrokeTail() {
+    const st = this.stroke;
+    if (!st || st.kind !== 'pen' || st.drawn === 0) return false;
+    const g = this.inkGeometry();
+    if (g.resized) return false;
+    const pts = st.points;
+    if (st.drawn >= pts.length) return true;
+    const { ctx } = g;
+    ctx.strokeStyle = st.color;
+    ctx.beginPath();
+    ctx.moveTo(g.X(pts[st.drawn - 1]), g.Y(pts[st.drawn - 1]));
+    for (let i = st.drawn; i < pts.length; i++) ctx.lineTo(g.X(pts[i]), g.Y(pts[i]));
+    ctx.stroke();
+    st.drawn = pts.length;
+    return true;
+  },
+
+  /** Draws this device's strokes for the shown page on the canvas over the slide image. */
+  renderInk() {
+    const g = this.inkGeometry();
+    const { ctx, w, h, X, Y, dpr } = g;
     ctx.clearRect(0, 0, w, h);
     const strokes = (this.st && this.st.showing && this.inkSlides.get(this.inkPage())) || [];
-    if (!strokes.length) return;
-    const r = this.slideRect();
-    const ox = (r.left - r.boxLeft) * dpr;
-    const oy = (r.top - r.boxTop) * dpr;
-    const sw = r.width * dpr;
-    const sh = r.height * dpr;
-    const X = (p) => ox + p.x * sw;
-    const Y = (p) => oy + p.y * sh;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(2, sh * 0.007);
     for (const st of strokes) {
       ctx.strokeStyle = st.color;
       ctx.fillStyle = st.color;
@@ -1303,6 +1427,7 @@ const App = {
         st.points.forEach((p, i) => (i ? ctx.lineTo(X(p), Y(p)) : ctx.moveTo(X(p), Y(p))));
         ctx.stroke();
       }
+      if (st === this.stroke) st.drawn = st.points.length;
     }
   },
 
@@ -1701,6 +1826,11 @@ function init() {
   // Laser pointer and pen on the current slide.
   $('laserBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'laser' ? null : 'laser'); });
   $('penBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'pen' ? null : 'pen'); });
+  $('spotBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setTool(App.tool === 'spot' ? null : 'spot'); });
+  for (const b of document.querySelectorAll('.spotsize')) {
+    b.addEventListener('click', (e) => { e.stopPropagation(); App.setSpotSize(b.dataset.size); });
+  }
+  App.setSpotSize(App.spotSize);
   $('eraseBtn').addEventListener('click', (e) => { e.stopPropagation(); App.eraseInk(); });
   $('wbBtn').addEventListener('click', (e) => { e.stopPropagation(); App.toggleWhiteboard(); });
   $('fsBtn').addEventListener('click', (e) => { e.stopPropagation(); App.setBig(!App.isBig()); });
@@ -1851,9 +1981,9 @@ function init() {
     App.tickMedia();
     if (Panels.activityOpen) Panels.renderActivity(false);
   }, 500);
-  window.addEventListener('resize', () => { App.renderSlides(); App.renderInk(); });
+  window.addEventListener('resize', () => { App.renderSlides(); App.requestInk(true); if (App.spotAt) App.showSpot(App.spotAt); });
   App.applyBig();
-  $('currentImg').addEventListener('load', () => App.renderInk());
+  $('currentImg').addEventListener('load', () => App.requestInk(true));
   Timer.render();
   renderClock();
   App.render();

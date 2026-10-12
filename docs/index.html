@@ -31,16 +31,24 @@
         <div id="current" class="slidebox">
           <img id="currentImg" alt="">
           <canvas id="inkCanvas"></canvas>
+          <div id="spotShade" class="hidden"></div>
           <div id="laserDot" class="hidden"></div>
           <div id="currentMsg" class="slidemsg"></div>
           <div id="blackBadge" class="badge hidden">Screen is black</div>
           <div id="slideTools" class="slidetools hidden">
             <div class="toolrow1">
               <button id="laserBtn" class="stool" title="Laser pointer: touch the slide" aria-label="Laser pointer">●</button>
+              <button id="spotBtn" class="stool" title="Spotlight: darken everything except where you point" aria-label="Spotlight">◎</button>
               <button id="penBtn" class="stool" title="Pen and shapes: draw on the slide" aria-label="Pen">✎</button>
               <button id="wbBtn" class="stool" title="Whiteboard: a blank page over the slide" aria-label="Whiteboard">▢</button>
               <button id="eraseBtn" class="stool hidden" title="Erase drawings on this page" aria-label="Erase drawings">⌫</button>
               <button id="fsBtn" class="stool" title="Big slide (full screen)" aria-label="Full screen">⤢</button>
+            </div>
+            <div id="spotSizesBox" class="pencolors hidden">
+              <span class="plabel">Spotlight</span>
+              <button class="shape spotsize" data-size="s" title="Small spotlight" aria-label="Small">S</button>
+              <button class="shape spotsize" data-size="m" title="Medium spotlight" aria-label="Medium">M</button>
+              <button class="shape spotsize" data-size="l" title="Large spotlight" aria-label="Large">L</button>
             </div>
             <div id="penColors" class="pencolors hidden">
               <button class="shape on" data-shape="pen" title="Freehand" aria-label="Freehand">✎</button>
