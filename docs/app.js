@@ -1,7 +1,12 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.5.1';
+
+function clearSelection() {
+  const sel = window.getSelection && window.getSelection();
+  if (sel && sel.rangeCount) sel.removeAllRanges();
+}
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1060,6 +1065,8 @@ const App = {
     if (this.tool === tool) return;
     this.tool = tool;
     $('current').classList.toggle('drawing', !!tool);
+    document.documentElement.classList.toggle('drawmode', !!tool);
+    if (tool) clearSelection();
     $('laserBtn').classList.toggle('on', tool === 'laser');
     $('spotBtn').classList.toggle('on', tool === 'spot');
     $('penBtn').classList.toggle('on', tool === 'pen');
@@ -1217,6 +1224,7 @@ const App = {
 
   pointerDown(e) {
     if (!this.tool) return;
+    clearSelection();
     const p = this.toSlide(e, false);
     if (!p) return;
     e.preventDefault();
@@ -1862,6 +1870,12 @@ function init() {
   cur.addEventListener('pointermove', (e) => App.pointerMove(e));
   cur.addEventListener('pointerup', (e) => App.pointerUp(e));
   cur.addEventListener('pointercancel', (e) => App.pointerUp(e));
+  // With a drawing tool on, iOS would otherwise treat quick Pencil strokes as
+  // text-selection / long-press gestures and select words in the notes.
+  const blockTouch = (e) => { if (App.tool && !onSlideTools(e)) e.preventDefault(); };
+  cur.addEventListener('touchstart', blockTouch, { passive: false });
+  cur.addEventListener('touchmove', blockTouch, { passive: false });
+  document.addEventListener('selectstart', (e) => { if (App.tool) e.preventDefault(); });
 
   $('fontUp').addEventListener('click', () => setFontSize(prefs.fontSize + 2));
   $('fontDown').addEventListener('click', () => setFontSize(prefs.fontSize - 2));

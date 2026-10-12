@@ -212,6 +212,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 
 /* Laser pointer, pen and media controls on the current slide */
 #current.drawing { touch-action: none; cursor: crosshair; }
+html.drawmode, html.drawmode * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
 #inkCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 #spotShade { position: absolute; pointer-events: none; }
 #spotBtn { color: #ffe08a; }
