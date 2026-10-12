@@ -121,7 +121,6 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 .notes {
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px 40px;
   font-size: var(--notes-size); line-height: 1.45; white-space: pre-wrap; word-wrap: break-word;
-  -webkit-user-select: text; user-select: text;
 }
 .notes.empty { color: var(--muted); font-style: italic; }
 

@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1064,6 +1064,7 @@ const App = {
   setTool(tool, silent) {
     if (this.tool === tool) return;
     this.tool = tool;
+    this.activePointer = null;
     $('current').classList.toggle('drawing', !!tool);
     document.documentElement.classList.toggle('drawmode', !!tool);
     if (tool) clearSelection();
@@ -1222,13 +1223,34 @@ const App = {
     return (list.length ? list : [e]).map((ev) => this.toSlide(ev, true));
   },
 
+  activePointer: null,
+  pencilUsed: false,
+
+  /**
+   * Palm rejection: once the Apple Pencil (or another stylus) has been used, finger and palm
+   * touches no longer draw, and only one pointer draws at a time, so a resting hand can't
+   * end or replace the stroke being written.
+   */
+  ownsPointer(e) {
+    return this.activePointer === e.pointerId;
+  },
+
   pointerDown(e) {
     if (!this.tool) return;
     clearSelection();
+    if (e.pointerType === 'pen') { this.pencilUsed = true; this.pencilAt = Date.now(); }
+    else if (this.pencilUsed) return;
+    if (this.activePointer !== null) {
+      // A stylus wins over a touch that started first (the palm landing just before the tip).
+      if (e.pointerType !== 'pen' || this.activePointerType === 'pen') return;
+      this.endPointer();
+    }
     const p = this.toSlide(e, false);
     if (!p) return;
     e.preventDefault();
-    $('current').setPointerCapture(e.pointerId);
+    this.activePointer = e.pointerId;
+    this.activePointerType = e.pointerType;
+    try { $('current').setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     if (this.tool === 'laser') {
       this.pendingLaser = p;
       this.showLaser(p);
@@ -1256,8 +1278,9 @@ const App = {
   },
 
   pointerMove(e) {
-    if (!this.tool || !$('current').hasPointerCapture(e.pointerId)) return;
+    if (!this.tool || !this.ownsPointer(e)) return;
     e.preventDefault();
+    if (e.pointerType === 'pen') this.pencilAt = Date.now();
     const pts = this.eventPoints(e);
     const p = pts[pts.length - 1];
     if (this.tool === 'laser') {
@@ -1282,8 +1305,13 @@ const App = {
     this.scheduleFlush();
   },
 
-  pointerUp() {
-    if (!this.tool) return;
+  pointerUp(e) {
+    if (!this.tool || !this.ownsPointer(e)) return;
+    this.endPointer();
+  },
+
+  endPointer() {
+    this.activePointer = null;
     clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.flushPointer(true);
@@ -1875,6 +1903,16 @@ function init() {
   const blockTouch = (e) => { if (App.tool && !onSlideTools(e)) e.preventDefault(); };
   cur.addEventListener('touchstart', blockTouch, { passive: false });
   cur.addEventListener('touchmove', blockTouch, { passive: false });
+  // A hand resting elsewhere on the screen (e.g. on the notes) while writing must not select,
+  // zoom or scroll anything. Buttons and other controls keep working.
+  document.addEventListener('touchstart', (e) => {
+    if (!App.tool || cur.contains(e.target)) return;
+    if (e.target.closest('button, input, select, textarea, a, label, .panel, .overlay')) return;
+    // The notes still scroll with a finger, except while (or just after) writing with the Pencil.
+    const writing = App.activePointerType === 'pen' && App.activePointer !== null;
+    if (e.target.closest('.notes') && !writing && Date.now() - (App.pencilAt || 0) > 2000) return;
+    e.preventDefault();
+  }, { passive: false });
   document.addEventListener('selectstart', (e) => { if (App.tool) e.preventDefault(); });
 
   $('fontUp').addEventListener('click', () => setFontSize(prefs.fontSize + 2));

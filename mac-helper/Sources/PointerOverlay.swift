@@ -76,7 +76,16 @@ final class PointerOverlay {
         view.needsDisplay = true
     }
 
+    /// Keeps an unfinished stroke (e.g. a quick dot whose "pen up" hasn't arrived) instead of dropping it.
+    private func commitCurrent() {
+        if let s = view.current, s.points.count > 0 {
+            strokesBySlide[page, default: []].append(s)
+            view.strokes = strokesBySlide[page] ?? []
+        }
+    }
+
     func penDown(color: NSColor, at p: CGPoint) {
+        commitCurrent()
         view.current = Stroke(color: color, points: [p])
         view.needsDisplay = true
     }
@@ -89,6 +98,7 @@ final class PointerOverlay {
 
     /// Straight line, arrow, ellipse or rectangle from the first point to the moving end point.
     func shapeDown(kind: String, color: NSColor, at p: CGPoint) {
+        commitCurrent()
         view.current = Stroke(kind: kind, color: color, points: [p, p])
         view.needsDisplay = true
     }
@@ -112,10 +122,7 @@ final class PointerOverlay {
     }
 
     func penUp() {
-        if let s = view.current, s.points.count > 0 {
-            strokesBySlide[page, default: []].append(s)
-            view.strokes = strokesBySlide[page] ?? []
-        }
+        commitCurrent()
         view.current = nil
         view.needsDisplay = true
         refreshInkFlag()
