@@ -804,6 +804,8 @@ enum AudioMixer {
 
         var duck: Float = 1   // microphone gain while the Mac plays sound (avoids hearing it twice)
         var limit: Float = 1  // keeps the sum from clipping
+        var voiceEnv: Float = 0   // level of the voice, for the compressor
+        var voiceGain: Float = 1  // compressor gain (evens out loud and soft speech, near and far)
         var done: AVAudioFramePosition = 0
         while done < total {
             let n = AVAudioFrameCount(min(AVAudioFramePosition(block), total - done))
@@ -832,12 +834,29 @@ enum AudioMixer {
                 let wStart = remWeight
                 remWeight += ((covered ? 1 : 0) - remWeight) * 0.15
                 let wStep = (remWeight - wStart) / Float(end - i)
+                // Gentle voice compressor: level of this piece of the voice…
+                var ve: Float = 0
+                for k in i..<end {
+                    let w = wStart + wStep * Float(k - i)
+                    let v = (k < rl ? r0[k] * remGainBase : 0) * w + (k < ml ? m0[k] * micGainBase : 0) * (1 - w)
+                    ve += v * v
+                }
+                let vr = (ve / Float(end - i)).squareRoot()
+                voiceEnv += (vr - voiceEnv) * (vr > voiceEnv ? 0.4 : 0.04)
+                let db = 20 * log10(max(voiceEnv, 1e-6))
+                // …above -26 dB reduced 3:1, then 6 dB louder; quiet room noise is left alone.
+                let makeup: Float = db > -45 ? 6 : db > -55 ? 6 * (db + 55) / 10 : 0
+                let gDb = (db > -26 ? (-26 - db) * (2.0 / 3.0) : 0) + makeup
+                let gTarget = pow(10, gDb / 20)
+                let gStart = voiceGain
+                voiceGain += (gTarget - voiceGain) * 0.3
+                let gStep = (voiceGain - gStart) / Float(end - i)
                 var peak: Float = 0
                 for k in i..<end {
                     let w = wStart + wStep * Float(k - i)
                     let mm = k < ml ? m0[k] * micGainBase : 0
                     let rr = k < rl ? r0[k] * remGainBase : 0
-                    let m = (rr * w + mm * (1 - w)) * duck
+                    let m = (rr * w + mm * (1 - w)) * duck * (gStart + gStep * Float(k - i))
                     let a = (k < sl ? s0[k] : 0) + m
                     let b = (k < sl ? s1[k] : 0) + m
                     L[k] = a

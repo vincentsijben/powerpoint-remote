@@ -134,9 +134,14 @@ const RemoteMic = {
     try {
       const live = this.stream && this.stream.getAudioTracks().some((t) => t.readyState === 'live');
       if (!live) {
+        // Without the system's voice processing the microphone records the full range (much more natural);
+        // the Mac evens out the level. "Reduce background noise" turns the processing back on.
+        const clean = store.get('micClean', false);
         this.stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          audio: { echoCancellation: clean, noiseSuppression: clean, autoGainControl: clean, channelCount: 1, sampleRate: 48000 },
         });
+        const st = this.stream.getAudioTracks()[0].getSettings ? this.stream.getAudioTracks()[0].getSettings() : {};
+        Activity.log(`Microphone: ${st.sampleRate || '?'} Hz, voice processing ${clean ? 'on' : 'off'}`);
       }
     } catch (e) {
       this.starting = false;
@@ -159,7 +164,7 @@ const RemoteMic = {
     const seg = (this.devPrefix * 1000 + (this.segCounter % 1000)) >>> 0;
     const s = { rec, seg, chunks: [], count: 0, size: 0, ended: false, begun: false, have: 0, sent: 0, lastAckAt: 0, at: Date.now() };
     this.segs.set(`${rec}:${seg}`, s);
-    const mr = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
+    const mr = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 });
     mr.addEventListener('start', async () => {
       s.begun = await App.transport.send(`ma begin ${rec} ${seg}`);
       AudioStore.putSeg(this.meta(s));

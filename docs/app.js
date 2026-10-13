@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.8.2';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1883,6 +1883,8 @@ const Rec = {
     const bt = App.transport && App.transport.kind === 'bluetooth';
     $('micBox').classList.toggle('hidden', !RemoteMic.supported || !bt);
     $('micToggle').checked = RemoteMic.enabled;
+    $('micClean').checked = store.get('micClean', false);
+    $('micClean').parentElement.classList.toggle('hidden', !RemoteMic.enabled);
     const ms = RemoteMic.statusText();
     $('micStatus').textContent = ms;
     $('micStatus').classList.toggle('hidden', !ms);
@@ -1922,6 +1924,8 @@ const Rec = {
     $('recScreen').addEventListener('change', (e) => App.send(`rec screen ${e.target.value}`));
     $('recSaveNow').addEventListener('click', () => App.send('rec savenow'));
     $('micToggle').addEventListener('change', (e) => RemoteMic.setEnabled(e.target.checked));
+    // Takes effect for the next piece (after a pause or the next recording).
+    $('micClean').addEventListener('change', (e) => store.set('micClean', e.target.checked));
     $('micResume').addEventListener('click', () => {
       const r = this.info();
       if (r && r.st === 'rec') RemoteMic.startSegment(r.id, true);
