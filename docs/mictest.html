@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PPT Remote – microphone test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 16px; font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #111418; color: #e8edf2; max-width: 720px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { color: #9aa6b2; margin: 4px 0 14px; }
+  button { font: inherit; padding: 12px 16px; border-radius: 12px; border: 1px solid #2a323c; background: #1b2128; color: #fff; margin: 0 8px 8px 0; }
+  button.primary { background: #3b82f6; border-color: #3b82f6; }
+  button:disabled { opacity: .4; }
+  .meter { height: 18px; background: #1b2128; border-radius: 9px; overflow: hidden; margin: 8px 0 14px; border: 1px solid #2a323c; }
+  .meter div { height: 100%; width: 0; background: linear-gradient(90deg, #32d74b, #ffd60a 70%, #ff453a); transition: width .05s; }
+  .status { font-size: 20px; font-weight: 600; margin: 8px 0; }
+  .ok { color: #32d74b; } .bad { color: #ff453a; } .warn { color: #ffd60a; }
+  textarea { width: 100%; box-sizing: border-box; height: 260px; background: #0b0d10; color: #cfd8e1; border: 1px solid #2a323c; border-radius: 10px; padding: 8px; font: 12px/1.4 ui-monospace, Menlo, monospace; }
+  audio { width: 100%; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>Microphone test</h1>
+<p>Checks whether this browser can use the microphone for recording a lecture. Nothing is uploaded: the sound stays on this device.</p>
+
+<div id="summary" class="status">Not started</div>
+<button id="micBtn" class="primary">1. Start microphone</button>
+<div class="meter"><div id="level"></div></div>
+
+<button id="rec10" disabled>2. Record 10 seconds</button>
+<button id="longBtn" disabled>3. Long test (lock screen / switch apps)</button>
+<audio id="play" controls hidden></audio>
+<div id="longInfo" class="status" hidden></div>
+
+<p>Results (tap <b>Copy results</b> and paste them in the chat):</p>
+<textarea id="out" readonly></textarea>
+<button id="copyBtn">Copy results</button>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const t0 = performance.now();
+const lines = [];
+function log(msg) {
+  const t = ((performance.now() - t0) / 1000).toFixed(1).padStart(6);
+  lines.push(`${t}s ${msg}`);
+  $('out').value = lines.join('\n');
+  $('out').scrollTop = 1e9;
+}
+function summary(text, cls) { $('summary').textContent = text; $('summary').className = `status ${cls || ''}`; }
+
+// --- environment ----------------------------------------------------------
+log(`User agent: ${navigator.userAgent}`);
+log(`Secure context: ${window.isSecureContext}`);
+log(`navigator.mediaDevices: ${!!navigator.mediaDevices}, getUserMedia: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`);
+log(`Web Bluetooth available: ${!!navigator.bluetooth}`);
+log(`MediaRecorder: ${typeof MediaRecorder !== 'undefined'}`);
+const types = ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/aac'];
+const supported = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported ? types.filter((t) => MediaRecorder.isTypeSupported(t)) : [];
+log(`Recording formats: ${supported.join(', ') || 'none'}`);
+log(`AudioContext: ${!!(window.AudioContext || window.webkitAudioContext)}`);
+log(`Wake lock: ${'wakeLock' in navigator}`);
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  summary('✗ This browser gives web pages no microphone access', 'bad');
+  $('micBtn').disabled = true;
+}
+
+let stream = null;
+let wake = null;
+const pickType = () => supported.find((t) => t.startsWith('audio/mp4')) || supported.find((t) => t.includes('opus')) || supported[0] || '';
+
+// --- 1. microphone + level meter --------------------------------------------
+$('micBtn').addEventListener('click', async () => {
+  summary('Asking for the microphone…', 'warn');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    log(`getUserMedia FAILED: ${e.name}: ${e.message}`);
+    summary(`✗ Microphone refused: ${e.name}`, 'bad');
+    return;
+  }
+  const track = stream.getAudioTracks()[0];
+  const s = track.getSettings ? track.getSettings() : {};
+  log(`Microphone OK: "${track.label}" ${JSON.stringify(s)}`);
+  for (const ev of ['mute', 'unmute', 'ended']) track.addEventListener(ev, () => log(`Track event: ${ev}`));
+  summary('✓ Microphone works. Speak: the bar should move.', 'ok');
+  $('micBtn').disabled = true;
+  $('rec10').disabled = $('longBtn').disabled = !supported.length;
+  if (!supported.length) log('No recording format: can hear the mic but cannot record it with MediaRecorder');
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    const src = ac.createMediaStreamSource(stream);
+    const an = ac.createAnalyser();
+    an.fftSize = 1024;
+    src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let peak = 0;
+    const tick = () => {
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      peak = Math.max(peak, rms);
+      $('level').style.width = `${Math.min(100, rms * 400)}%`;
+      requestAnimationFrame(tick);
+    };
+    tick();
+    setTimeout(() => log(`Loudest level in first 5 s: ${peak.toFixed(3)} (speech is usually > 0.02)`), 5000);
+    log(`AudioContext sample rate: ${ac.sampleRate} Hz, state ${ac.state}`);
+  } catch (e) {
+    log(`Level meter failed: ${e.message}`);
+  }
+});
+
+// --- 2. short recording ----------------------------------------------------------
+function makeRecorder(onChunk) {
+  const type = pickType();
+  const rec = new MediaRecorder(stream, { mimeType: type, audioBitsPerSecond: 24000 });
+  rec.addEventListener('dataavailable', (e) => { if (e.data && e.data.size) onChunk(e.data); });
+  rec.addEventListener('error', (e) => log(`Recorder error: ${e.error ? e.error.name : e}`));
+  log(`Recorder: ${rec.mimeType || type}, asked 24 kbps`);
+  return rec;
+}
+
+$('rec10').addEventListener('click', () => {
+  const chunks = [];
+  const rec = makeRecorder((b) => chunks.push(b));
+  const started = performance.now();
+  rec.addEventListener('stop', () => {
+    const secs = (performance.now() - started) / 1000;
+    const blob = new Blob(chunks, { type: rec.mimeType || pickType() });
+    log(`10 s recording: ${chunks.length} chunks, ${(blob.size / 1024).toFixed(1)} KB, ${(blob.size * 8 / secs / 1000).toFixed(1)} kbps → ${(blob.size / secs / 1024).toFixed(1)} KB/s over Bluetooth`);
+    const a = $('play');
+    a.src = URL.createObjectURL(blob);
+    a.hidden = false;
+    summary('✓ Recorded. Play it back to check the sound.', 'ok');
+    $('rec10').disabled = false;
+  });
+  rec.start(1000);
+  $('rec10').disabled = true;
+  summary('Recording 10 seconds… keep talking', 'warn');
+  setTimeout(() => rec.stop(), 10000);
+});
+
+// --- 3. long test: does recording survive a locked screen or switching apps? -----
+let long = null;
+$('longBtn').addEventListener('click', async () => {
+  if (long) {
+    long.rec.stop();
+    return;
+  }
+  try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); log('Wake lock on'); } catch (e) { log(`Wake lock failed: ${e.message}`); }
+  long = { bytes: 0, chunks: 0, started: performance.now(), last: performance.now(), gaps: 0, parts: [] };
+  long.rec = makeRecorder((b) => {
+    const now = performance.now();
+    if (now - long.last > 3000) { long.gaps++; log(`Gap: no audio for ${((now - long.last) / 1000).toFixed(1)} s`); }
+    long.last = now;
+    long.bytes += b.size;
+    long.chunks++;
+    long.parts.push(b);
+  });
+  long.rec.addEventListener('stop', () => {
+    const secs = (performance.now() - long.started) / 1000;
+    log(`Long test: ${secs.toFixed(0)} s, ${long.chunks} chunks, ${(long.bytes / 1024).toFixed(0)} KB, gaps: ${long.gaps}`);
+    const a = $('play');
+    a.src = URL.createObjectURL(new Blob(long.parts, { type: long.rec.mimeType || pickType() }));
+    a.hidden = false;
+    $('longBtn').textContent = '3. Long test (lock screen / switch apps)';
+    $('longInfo').hidden = true;
+    summary(long.gaps ? `⚠︎ Recording had ${long.gaps} gap(s): see the log` : '✓ Long test finished without gaps', long.gaps ? 'warn' : 'ok');
+    if (wake) wake.release().catch(() => {});
+    long = null;
+  });
+  long.rec.start(1000);
+  $('longBtn').textContent = 'Stop long test';
+  $('longInfo').hidden = false;
+  summary('Long test running: try locking the screen or switching apps, then come back', 'warn');
+});
+setInterval(() => {
+  if (!long) return;
+  const secs = (performance.now() - long.started) / 1000;
+  $('longInfo').textContent = `⏺ ${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, '0')} · ${(long.bytes / 1024).toFixed(0)} KB · last audio ${((performance.now() - long.last) / 1000).toFixed(0)} s ago`;
+}, 500);
+
+document.addEventListener('visibilitychange', () => log(`Page ${document.visibilityState}`));
+window.addEventListener('pagehide', () => log('Page hide'));
+window.addEventListener('pageshow', () => log('Page show'));
+
+$('copyBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('out').value);
+    $('copyBtn').textContent = 'Copied ✓';
+  } catch {
+    $('out').select();
+    document.execCommand('copy');
+    $('copyBtn').textContent = 'Copied ✓';
+  }
+  setTimeout(() => { $('copyBtn').textContent = 'Copy results'; }, 1500);
+});
+</script>
+</body>
+</html>
