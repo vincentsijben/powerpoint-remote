@@ -160,7 +160,16 @@
         <button id="recPause" class="big">⏸ Pause</button>
         <button id="recStop" class="big danger">■ Stop &amp; save</button>
       </div>
+      <button id="recSaveNow" class="big hidden">Save now, without the rest of the iPad's sound</button>
       <p id="recInfo" class="hint"></p>
+      <div id="micBox" class="hidden">
+        <div class="row"><label for="micToggle">Also record my voice with this device's microphone</label><input id="micToggle" type="checkbox"></div>
+        <p id="micStatus" class="hint"></p>
+        <div class="row">
+          <button id="micResume" class="big hidden">🎙 Resume microphone</button>
+          <button id="micDelete" class="linkbtn hidden">Delete stored microphone sound</button>
+        </div>
+      </div>
       <p class="hint">Tip: turn on <b>Do Not Disturb</b> on the Mac, so pop-ups don't end up in the video. Recordings: Mac menu bar › PPT Remote › <i>Open Recordings Folder</i>.</p>
     </div>
   </div>
@@ -244,6 +253,7 @@
   <script src="protocol.js"></script>
   <script src="activity.js"></script>
   <script src="storage.js"></script>
+  <script src="remotemic.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

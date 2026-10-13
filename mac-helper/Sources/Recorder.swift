@@ -28,6 +28,11 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private(set) var displayID: CGDirectDisplayID = 0
+    /// The microphone of the iPad / phone (sent over Bluetooth).
+    let remote = RemoteMicStore()
+    private(set) var recID: UInt32 = 0
+    private(set) var waitingRemote = false
+    private var saveNow = false
     private var showBounds: CGRect?
     private var switching = false
 
@@ -140,6 +145,12 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     func stateObject() -> [String: Any] {
         var o: [String: Any] = ["st": phase.rawValue, "t": Int(elapsed.rounded(.down)), "mic": micOn]
         if phase == .saving { o["p"] = Int(savingProgress * 100) }
+        if phase != .off { o["id"] = recID }
+        if waitingRemote {
+            o["rw"] = true
+            o["rp"] = remote.expectedBytes > 0 ? Int(Double(remote.receivedBytes) / Double(remote.expectedBytes) * 100) : 0
+        }
+        if remote.hasAudio, phase != .off { o["rmic"] = true }
         if let f = lastFile { o["file"] = f.lastPathComponent }
         if let e = lastError { o["err"] = e }
         if !displayName.isEmpty, phase != .off { o["disp"] = displayName }
@@ -309,6 +320,13 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             micOn = withMic
             workDir = dir
+            recID = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
+            remote.reset(dir: dir, rec: recID)
+            remote.mediaNow = { [weak self] in
+                guard let self, self.phase == .rec else { return nil }
+                return self.queue.sync { self.mediaNow()?.seconds }
+            }
+            remote.onChange = { [weak self] in self?.onChange?() }
             self.stream = stream
             let system = AudioTrackFile(url: dir.appendingPathComponent("system.m4a"), channels: 2, bitrate: 160_000)
             let micFile = withMic ? AudioTrackFile(url: dir.appendingPathComponent("mic.m4a"), channels: 1, bitrate: 96_000) : nil
@@ -447,17 +465,78 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.finished(nil, error: "Saving the video failed: \(writer.error?.localizedDescription ?? "unknown error")", done: done)
                 return
             }
-            DispatchQueue.global(qos: .userInitiated).async {
-                self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, dir: dir, done: done)
+            DispatchQueue.main.async {
+                self.awaitRemote {
+                    let files = self.remote.files
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, remote: files, dir: dir, done: done)
+                    }
+                }
             }
         }
     }
 
-    private func mixAndExport(video: URL, system: URL?, mic: URL?, dir: URL, done: (() -> Void)?) {
+    /// "Save now" from the remote: don't wait for the rest of the iPad's audio.
+    func saveWithoutWaiting() {
+        guard waitingRemote else { return }
+        saveNow = true
+    }
+
+    /// After Stop, the remote may still be sending the end of its microphone recording: wait for it
+    /// (with progress on the remote), unless it stops arriving.
+    private func awaitRemote(_ go: @escaping () -> Void) {
+        if remote.segments.isEmpty || remote.isComplete { go(); return }
+        waitingRemote = true
+        saveNow = false
+        Log.write("Waiting for the remote's microphone audio (\(remote.receivedBytes / 1024) of \(remote.expectedBytes / 1024) KB)")
+        onChange?()
+        let began = Date()
+        var lastBytes = remote.receivedBytes
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { t in
+            let quiet = Date().timeIntervalSince(max(self.remote.lastDataAt, began))
+            if self.remote.isComplete || self.saveNow || quiet > 120 || Date().timeIntervalSince(began) > 1800 {
+                t.invalidate()
+                self.waitingRemote = false
+                if !self.remote.isComplete { Log.write("Saving without the rest of the remote's audio (\(self.remote.receivedBytes / 1024) of \(self.remote.expectedBytes / 1024) KB)") }
+                self.onChange?()
+                go()
+                return
+            }
+            if self.remote.receivedBytes != lastBytes {
+                lastBytes = self.remote.receivedBytes
+                self.onChange?()
+            }
+        }
+    }
+
+    private func mixAndExport(video: URL, system: URL?, mic: URL?, remote: [(url: URL, start: Double)], dir: URL, done: (() -> Void)?) {
+        // The remote's microphone: decode its pieces onto the recording's timeline.
+        var remoteURL: URL?
+        var coverage: [ClosedRange<Double>] = []
+        if !remote.isEmpty {
+            let rf = AudioTrackFile(url: dir.appendingPathComponent("remote.m4a"), channels: 1, bitrate: 96_000)
+            for seg in remote {
+                guard let data = try? Data(contentsOf: seg.url), let track = WebMOpus.parse(data) else {
+                    Log.write("Remote microphone: could not read \(seg.url.lastPathComponent)")
+                    continue
+                }
+                let first = seg.start + WebMOpus.firstPacketTime(track)
+                var pos = first
+                let n = WebMOpus.decode(track) { buf in
+                    rf.write(buf, atSeconds: pos)
+                    pos += Double(buf.frameLength) / 48000
+                } ?? 0
+                if n > 0 { coverage.append(first...(first + Double(n) / 48000)) }
+                Log.write("Remote microphone: \(seg.url.lastPathComponent) → \(String(format: "%.1f", Double(n) / 48000)) s from \(String(format: "%.1f", first)) s")
+            }
+            rf.close()
+            if rf.hasAudio { remoteURL = rf.url }
+        }
+
         let mixed = dir.appendingPathComponent("mixed.m4a")
         var hasAudio = false
         do {
-            hasAudio = try AudioMixer.mix(system: system, mic: mic, to: mixed) { p in
+            hasAudio = try AudioMixer.mix(system: system, mic: mic, remote: remoteURL, remoteCoverage: coverage, to: mixed) { p in
                 DispatchQueue.main.async {
                     // Mixing is most of the work; the export afterwards only copies.
                     let v = p * 0.9
@@ -525,6 +604,7 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             self.phase = .off
             self.savingProgress = 0
             self.workDir = nil
+            self.remote.finish()
             self.onChange?()
             done?()
         }
@@ -589,11 +669,12 @@ final class AudioTrackFile {
         let fmt = AVAudioFormat(cmAudioFormatDescription: desc)
         try? sb.withAudioBufferList { abl, _ in
             guard let src = AVAudioPCMBuffer(pcmFormat: fmt, bufferListNoCopy: abl.unsafePointer) else { return }
-            self.write(src, at: media)
+            self.write(src, atSeconds: media.seconds)
         }
     }
 
-    private func write(_ src: AVAudioPCMBuffer, at media: CMTime) {
+    /// Writes `src` so that it starts `seconds` into the recording.
+    func write(_ src: AVAudioPCMBuffer, atSeconds seconds: Double) {
         if file == nil {
             let settings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -604,7 +685,7 @@ final class AudioTrackFile {
             file = try? AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         }
         guard let file, let buf = convert(src, to: file.processingFormat), buf.frameLength > 0 else { return }
-        let expected = AVAudioFramePosition(media.seconds * Self.rate)
+        let expected = AVAudioFramePosition(seconds * Self.rate)
         let gap = expected - written
         if gap > AVAudioFramePosition(Self.rate * 0.02) {
             writeSilence(frames: gap, format: file.processingFormat)
@@ -675,20 +756,32 @@ final class AudioTrackFile {
 /// Combines the Mac's own sound with the microphone into one stereo track.
 enum AudioMixer {
     /// Returns false when there is no sound at all.
-    static func mix(system: URL?, mic: URL?, to out: URL, progress: (Double) -> Void) throws -> Bool {
+    /// `remote`: the iPad's microphone, used for your voice wherever it has sound (`remoteCoverage`, in seconds);
+    /// the MacBook microphone fills the gaps (e.g. while the iPad's screen was locked).
+    static func mix(system: URL?, mic: URL?, remote: URL? = nil, remoteCoverage: [ClosedRange<Double>] = [],
+                    to out: URL, progress: (Double) -> Void) throws -> Bool {
         let sys = try system.map { try AVAudioFile(forReading: $0) }
         let micFile = try mic.map { try AVAudioFile(forReading: $0) }
-        guard sys != nil || micFile != nil else { return false }
+        let remFile = try remote.map { try AVAudioFile(forReading: $0) }
+        guard sys != nil || micFile != nil || remFile != nil else { return false }
         let rate = 48000.0
-        let total = max(sys?.length ?? 0, micFile?.length ?? 0)
+        let total = max(sys?.length ?? 0, micFile?.length ?? 0, remFile?.length ?? 0)
         guard total > 0 else { return false }
 
-        // Bring the microphone to a comfortable level (quiet laptop mics), at most 4× louder.
+        // Bring the microphones to a comfortable level (quiet laptop mics), at most 4× louder.
         var micGainBase: Float = 1
+        var remGainBase: Float = 1
         if let micFile {
-            micGainBase = try speechGain(micFile, progress: { progress($0 * 0.3) })
+            micGainBase = try speechGain(micFile, progress: { progress($0 * (remFile == nil ? 0.3 : 0.15)) })
             micFile.framePosition = 0
         }
+        if let remFile {
+            remGainBase = try speechGain(remFile, progress: { progress(0.15 + $0 * 0.15) })
+            remFile.framePosition = 0
+        }
+        let coverage = remoteCoverage.sorted { $0.lowerBound < $1.lowerBound }
+        var covIndex = 0
+        var remWeight: Float = 0 // 1 = voice from the remote, 0 = from the MacBook
 
         let outFile = try AVAudioFile(forWriting: out, settings: [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -700,7 +793,8 @@ enum AudioMixer {
         let outFmt = outFile.processingFormat
         guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: block),
               let sysBuf = sys.flatMap({ AVAudioPCMBuffer(pcmFormat: $0.processingFormat, frameCapacity: block) }) ?? AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: block),
-              let micBuf = micFile.flatMap({ AVAudioPCMBuffer(pcmFormat: $0.processingFormat, frameCapacity: block) }) ?? AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: block) else { return false }
+              let micBuf = micFile.flatMap({ AVAudioPCMBuffer(pcmFormat: $0.processingFormat, frameCapacity: block) }) ?? AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: block),
+              let remBuf = remFile.flatMap({ AVAudioPCMBuffer(pcmFormat: $0.processingFormat, frameCapacity: block) }) ?? AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: block) else { return false }
 
         var duck: Float = 1   // microphone gain while the Mac plays sound (avoids hearing it twice)
         var limit: Float = 1  // keeps the sum from clipping
@@ -709,6 +803,8 @@ enum AudioMixer {
             let n = AVAudioFrameCount(min(AVAudioFramePosition(block), total - done))
             let sl = read(sys, into: sysBuf, frames: n)
             let ml = read(micFile, into: micBuf, frames: n)
+            let rl = read(remFile, into: remBuf, frames: n)
+            let r0 = remBuf.floatChannelData![0]
             outBuf.frameLength = n
             let L = outBuf.floatChannelData![0], R = outBuf.floatChannelData![1]
             let s0 = sysBuf.floatChannelData![0]
@@ -723,9 +819,19 @@ enum AudioMixer {
                 let rms = (e / Float(2 * (end - i))).squareRoot()
                 let target: Float = rms > 0.01 ? 0.35 : 1
                 duck += (target - duck) * (target < duck ? 0.5 : 0.03)
+                // Which microphone carries the voice here (with a short crossfade at the switch).
+                let t = Double(done + AVAudioFramePosition(i)) / rate
+                while covIndex < coverage.count, coverage[covIndex].upperBound < t { covIndex += 1 }
+                let covered = covIndex < coverage.count && coverage[covIndex].contains(t)
+                let wStart = remWeight
+                remWeight += ((covered ? 1 : 0) - remWeight) * 0.15
+                let wStep = (remWeight - wStart) / Float(end - i)
                 var peak: Float = 0
                 for k in i..<end {
-                    let m = k < ml ? m0[k] * micGainBase * duck : 0
+                    let w = wStart + wStep * Float(k - i)
+                    let mm = k < ml ? m0[k] * micGainBase : 0
+                    let rr = k < rl ? r0[k] * remGainBase : 0
+                    let m = (rr * w + mm * (1 - w)) * duck
                     let a = (k < sl ? s0[k] : 0) + m
                     let b = (k < sl ? s1[k] : 0) + m
                     L[k] = a

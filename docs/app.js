@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.8';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -136,6 +136,23 @@ class BleTransport {
         delivered = true;
       } catch (err) {
         Activity.log(`Command "${text.split(' ')[0]}" failed: ${err && err.message}`, 'error');
+      }
+    });
+    return this.writeChain.then(() => delivered);
+  }
+
+  /** Binary data (pieces of the microphone recording), without waiting for an acknowledgement. */
+  sendBinary(bytes) {
+    let delivered = false;
+    this.writeChain = this.writeChain.then(async () => {
+      const c = this.cmdChar;
+      if (!c || !this.device || !this.device.gatt.connected || !c.writeValueWithoutResponse) return;
+      try {
+        await c.writeValueWithoutResponse(bytes);
+        Activity.sent(bytes.length);
+        delivered = true;
+      } catch (err) {
+        Activity.log(`Microphone upload: ${err && err.message}`, 'error');
       }
     });
     return this.writeChain.then(() => delivered);
@@ -504,6 +521,8 @@ const App = {
       this.onDeck(obj);
     } else if (obj.type === 'sounds') {
       this.onSounds(obj);
+    } else if (obj.type === 'mack') {
+      RemoteMic.onAck(obj);
     } else if (obj.type === 'noimage') {
       if (obj.deck === this.deck) {
         Activity.log(`Slide ${obj.slide}: no image available`);
@@ -577,6 +596,7 @@ const App = {
       this.pendingGoto = null;
     }
     this.st = s;
+    RemoteMic.sync();
     if (!s.ink) this.inkSlides.delete(s.wb ? 'wb' : s.index);
     if (s.skey && s.skey !== this.soundsKey) this.requestSounds(s.skey);
     if (s.wb && !(prev && prev.wb)) Activity.log('Whiteboard on');
@@ -1227,6 +1247,7 @@ const App = {
     if (this.pendingSpot) msgs.push(`sp ${this.enc(this.pendingSpot)} ${Math.round(this.spotSizes[this.spotSize] * 10000)}`);
     if (this.pendingShapeEnd) msgs.push(`sm ${this.enc(this.pendingShapeEnd)}`);
     if (this.pendingZoom) msgs.push(`zm ${this.enc(this.pendingZoom)} ${Math.round(this.pendingZoom.s * 100)}`);
+    if (msgs.length || this.pendingPoints.length) this.lastPointerAt = Date.now();
     this.pendingLaser = this.pendingSpot = this.pendingShapeEnd = this.pendingZoom = null;
     let pts = this.pendingPoints;
     this.pendingPoints = [];
@@ -1857,6 +1878,16 @@ const Rec = {
       saving: `Saving… ${r.p || 0}%`,
     }[r.st] || r.st;
     $('recStart').classList.toggle('hidden', r.st !== 'off');
+    $('recSaveNow').classList.toggle('hidden', !r.rw);
+    if (r.rw) status.textContent = `Receiving the iPad's sound… ${r.rp || 0}%`;
+    const bt = App.transport && App.transport.kind === 'bluetooth';
+    $('micBox').classList.toggle('hidden', !RemoteMic.supported || !bt);
+    $('micToggle').checked = RemoteMic.enabled;
+    const ms = RemoteMic.statusText();
+    $('micStatus').textContent = ms;
+    $('micStatus').classList.toggle('hidden', !ms);
+    $('micResume').classList.toggle('hidden', !(RemoteMic.enabled && RemoteMic.needsTap && !RemoteMic.recorder && r.st === 'rec'));
+    $('micDelete').classList.toggle('hidden', r.st !== 'off' || !RemoteMic.segs.size);
     $('recRunning').classList.toggle('hidden', r.st !== 'rec' && r.st !== 'paused');
     $('recPause').textContent = r.st === 'paused' ? '⏺ Resume' : '⏸ Pause';
     const sel = $('recScreen');
@@ -1873,7 +1904,7 @@ const Rec = {
     if (this.stopArmed && Date.now() > this.stopArmed) this.stopArmed = 0;
     $('recStop').textContent = this.stopArmed ? 'Tap again to stop' : '■ Stop & save';
     const bits = [];
-    if (r.st !== 'off' && r.disp) bits.push(`Recording: ${r.disp}${r.mic ? ' · with microphone' : ' · no microphone'}`);
+    if (r.st !== 'off' && r.disp) bits.push(`Recording: ${r.disp}${r.mic ? ' · MacBook microphone' : ' · no MacBook microphone'}${r.rmic ? ' · iPad/phone microphone' : ''}`);
     if (r.err) bits.push(`⚠︎ ${r.err}`);
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
     $('recInfo').textContent = bits.join('\n');
@@ -1889,6 +1920,16 @@ const Rec = {
     $('recClose').addEventListener('click', () => $('recView').classList.add('hidden'));
     $('recStart').addEventListener('click', () => { buzz(20); App.send('rec start'); });
     $('recScreen').addEventListener('change', (e) => App.send(`rec screen ${e.target.value}`));
+    $('recSaveNow').addEventListener('click', () => App.send('rec savenow'));
+    $('micToggle').addEventListener('change', (e) => RemoteMic.setEnabled(e.target.checked));
+    $('micResume').addEventListener('click', () => {
+      const r = this.info();
+      if (r && r.st === 'rec') RemoteMic.startSegment(r.id, true);
+    });
+    $('micDelete').addEventListener('click', () => {
+      if (window.confirm('Delete the microphone sound stored on this device?')) RemoteMic.deleteAll();
+    });
+    RemoteMic.init();
     $('recPause').addEventListener('click', () => {
       const r = this.info();
       if (r) App.send(r.st === 'paused' ? 'rec resume' : 'rec pause');

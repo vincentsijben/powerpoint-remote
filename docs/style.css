@@ -410,3 +410,4 @@ body.bigslide .swatch { width: 26px; height: 26px; }
   body.bigslide .pencolors .shape.wide { width: auto; }
 }
 #recInfo { white-space: pre-line; margin-top: 4px; }
+#micStatus { white-space: pre-line; margin-top: 2px; }

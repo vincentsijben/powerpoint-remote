@@ -173,7 +173,14 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         for r in requests {
-            guard let v = r.value, let text = String(data: v, encoding: .utf8) else { continue }
+            guard let v = r.value else { continue }
+            if v.first == 0x01 {
+                // Binary: a piece of the remote's microphone recording.
+                let s = session(for: r.central)
+                if s.authed, let ack = hub.recorder.remote.receive(v) { enqueueJSON(ack, to: s) }
+                continue
+            }
+            guard let text = String(data: v, encoding: .utf8) else { continue }
             handle(text.trimmingCharacters(in: .whitespacesAndNewlines), from: session(for: r.central))
         }
         if let first = requests.first {
@@ -215,6 +222,8 @@ final class BLEServer: NSObject, CBPeripheralManagerDelegate {
             return
         }
         switch cmd {
+        case "ma":
+            if let reply = hub.recorder.remote.command(arg) { enqueueJSON(reply, to: s) }
         case "hello":
             s.resetSent()
             enqueueDeck(s)

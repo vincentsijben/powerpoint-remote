@@ -358,6 +358,7 @@ final class Hub {
         case "pause": recorder.pause()
         case "resume": recorder.resume()
         case "stop": recorder.stop()
+        case "savenow": recorder.saveWithoutWaiting()
         default:
             guard what.hasPrefix("screen ") else { return false }
             recorder.chooseScreen(String(what.dropFirst(7)))
