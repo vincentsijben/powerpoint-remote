@@ -408,11 +408,15 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     /// While the screen doesn't change, macOS sends no new frames; repeat the last one now and then
     /// so the video can be scrubbed and doesn't end early.
     private func startRepeatTimer() {
+        // A steady 15 frames per second: macOS only delivers a frame when the screen changes, and players such as
+        // VLC only update subtitles on a new frame, so a still slide would show them seconds late.
+        // Repeated frames cost almost nothing in H.264.
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 2, repeating: 2)
+        let step = 1.0 / 15
+        t.schedule(deadline: .now() + step, repeating: step, leeway: .milliseconds(5))
         t.setEventHandler { [weak self] in
             guard let self, self.capturing, !self.paused, let pb = self.lastFrame, let now = self.mediaNow() else { return }
-            if !self.lastFrameTime.isValid || (now - self.lastFrameTime).seconds > 1.9 { self.appendVideo(pb, at: now) }
+            if !self.lastFrameTime.isValid || (now - self.lastFrameTime).seconds >= step * 0.9 { self.appendVideo(pb, at: now) }
         }
         t.resume()
         queue.async { self.repeatTimer = t }
