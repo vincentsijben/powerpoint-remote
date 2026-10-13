@@ -28,6 +28,7 @@
 <button id="micBtn" class="primary">1. Start microphone</button>
 <div class="meter"><div id="level"></div></div>
 
+<p style="margin:0 0 8px">Format: <select id="fmt"></select> Bitrate: <select id="kbps"><option>16</option><option selected>24</option><option>32</option><option>64</option></select> kbps</p>
 <button id="rec10" disabled>2. Record 10 seconds</button>
 <button id="longBtn" disabled>3. Long test (lock screen / switch apps)</button>
 <audio id="play" controls hidden></audio>
@@ -68,7 +69,10 @@ if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
 
 let stream = null;
 let wake = null;
-const pickType = () => supported.find((t) => t.startsWith('audio/mp4')) || supported.find((t) => t.includes('opus')) || supported[0] || '';
+const fmtSel = $('fmt');
+for (const t of supported) fmtSel.add(new Option(t, t));
+fmtSel.value = supported.find((t) => t.includes('opus')) || supported[0] || '';
+const pickType = () => fmtSel.value;
 
 // --- 1. microphone + level meter --------------------------------------------
 $('micBtn').addEventListener('click', async () => {
@@ -117,10 +121,11 @@ $('micBtn').addEventListener('click', async () => {
 // --- 2. short recording ----------------------------------------------------------
 function makeRecorder(onChunk) {
   const type = pickType();
-  const rec = new MediaRecorder(stream, { mimeType: type, audioBitsPerSecond: 24000 });
+  const kbps = Number($('kbps').value);
+  const rec = new MediaRecorder(stream, { mimeType: type, audioBitsPerSecond: kbps * 1000 });
   rec.addEventListener('dataavailable', (e) => { if (e.data && e.data.size) onChunk(e.data); });
   rec.addEventListener('error', (e) => log(`Recorder error: ${e.error ? e.error.name : e}`));
-  log(`Recorder: ${rec.mimeType || type}, asked 24 kbps`);
+  log(`Recorder: ${rec.mimeType || type}, asked ${kbps} kbps`);
   return rec;
 }
 
