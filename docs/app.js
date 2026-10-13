@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.14';
+const APP_VERSION = '1.14.2';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1902,7 +1902,7 @@ const Rec = {
     if (sel.dataset.key !== key && document.activeElement !== sel) {
       sel.dataset.key = key;
       sel.innerHTML = '';
-      sel.add(new Option('Automatic (follows PowerPoint)', 'auto'));
+      sel.add(new Option('Automatic (follows the slide show)', 'auto'));
       for (const sc of screens) sel.add(new Option(sc.name, sc.id));
       sel.value = r.screen || 'auto';
     }

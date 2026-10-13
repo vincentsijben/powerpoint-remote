@@ -83,6 +83,8 @@ final class SlideImages {
             var aspect: CGFloat = 16.0 / 9.0
             if let path = pdfPath {
                 if let doc = PDFDocument(url: URL(fileURLWithPath: path)) {
+                    // Comments / sticky notes in a PDF are speaker notes, not part of the slide.
+                    for i in 0..<doc.pageCount { doc.page(at: i)?.displaysAnnotations = false }
                     self.document = doc
                     self.mapPages(doc: doc, hidden: hidden)
                     if let b = doc.page(at: 0)?.bounds(for: .mediaBox), b.height > 0 { aspect = b.width / b.height }

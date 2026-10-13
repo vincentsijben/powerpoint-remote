@@ -35,6 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             previous?()
             self?.updateIcon()
         }
+        // For documentation screenshots: PPTREMOTE_SHOW_MENU=<seconds> opens the menu for a few seconds after launch.
+        if let wait = ProcessInfo.processInfo.environment["PPTREMOTE_SHOW_MENU"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, let menu = self.statusItem.menu else { return }
+                let t = Timer(timeInterval: 6, repeats: false) { _ in menu.cancelTracking() }
+                RunLoop.main.add(t, forMode: .common)
+                self.statusItem.button?.performClick(nil)
+            }
+        }
         Log.write("PPT Remote started. PIN \(hub.pin). Direct slide jumps: \(PowerPoint.canJumpDirectly ? "on" : "off (needs Accessibility)")")
     }
 

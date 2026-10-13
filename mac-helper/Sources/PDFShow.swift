@@ -52,6 +52,8 @@ final class PDFShow: SlideApp {
             return false
         }
         if showing { endShow() }
+        // Sticky notes are the speaker notes: don't draw their icons on the slides.
+        for i in 0..<d.pageCount { d.page(at: i)?.displaysAnnotations = false }
         doc = d
         self.url = url
         index = 1
