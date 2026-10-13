@@ -15,6 +15,8 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var phase: Phase = .off
     private(set) var lastFile: URL?
     private(set) var lastError: String?
+    /// How the voice of the last recording was put together (which microphone when).
+    private(set) var lastMix: String?
     private(set) var savingProgress: Double = 0
     private(set) var micOn = false
     private(set) var displayName = ""
@@ -33,6 +35,9 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var recID: UInt32 = 0
     private(set) var waitingRemote = false
     private var saveNow = false
+    /// Moments (seconds into the recording) when someone typed or used the trackpad on the Mac: you're at the desk.
+    private var deskTimes: [Double] = []
+    private var deskTimer: Timer?
     private var showBounds: CGRect?
     private var switching = false
 
@@ -128,6 +133,8 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard phase == .rec || phase == .paused || phase == .starting else { done?(); return }
         recordedBefore = elapsed
         segmentStart = nil
+        deskTimer?.invalidate()
+        deskTimer = nil
         phase = .saving
         savingProgress = 0
         onChange?()
@@ -152,6 +159,7 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         if remote.hasAudio, phase != .off { o["rmic"] = true }
         if let f = lastFile { o["file"] = f.lastPathComponent }
+        if let m = lastMix, phase == .off { o["mix"] = m }
         if let e = lastError { o["err"] = e }
         if !displayName.isEmpty, phase != .off { o["disp"] = displayName }
         o["screen"] = Self.screenChoice
@@ -357,6 +365,9 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     self.segmentStart = Date()
                     self.phase = .rec
                     self.startRepeatTimer()
+                    self.deskTimes = []
+                    self.deskTimer?.invalidate()
+                    self.deskTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in self.noteDesk() }
                     Log.write("Recording \(self.displayName) at \(w)×\(h), Mac sound\(withMic ? " + microphone" : " (no microphone)")")
                     self.onChange?()
                 }
@@ -468,12 +479,22 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             DispatchQueue.main.async {
                 self.awaitRemote {
                     let files = self.remote.files
+                    let desk = self.deskTimes
                     DispatchQueue.global(qos: .userInitiated).async {
-                        self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, remote: files, dir: dir, done: done)
+                        self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, remote: files, desk: desk, dir: dir, done: done)
                     }
                 }
             }
         }
+    }
+
+    private func noteDesk() {
+        guard phase == .rec else { return }
+        // Hardware input only: slide jumps sent from the remote don't count.
+        let types: [CGEventType] = [.keyDown, .leftMouseDown, .mouseMoved, .scrollWheel, .leftMouseDragged]
+        let idle = types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? 99
+        guard idle < 0.3, let t = queue.sync(execute: { mediaNow()?.seconds }) else { return }
+        deskTimes.append(t)
     }
 
     /// "Save now" from the remote: don't wait for the rest of the iPad's audio.
@@ -509,43 +530,28 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    private func mixAndExport(video: URL, system: URL?, mic: URL?, remote: [(url: URL, start: Double)], dir: URL, done: (() -> Void)?) {
-        // The remote's microphone: decode its pieces onto the recording's timeline.
-        var remoteURL: URL?
-        var coverage: [ClosedRange<Double>] = []
+    private func mixAndExport(video: URL, system: URL?, mic: URL?, remote: [(url: URL, start: Double)], desk: [Double], dir: URL, done: (() -> Void)?) {
+        // The remote's microphone: line it up with the MacBook's and choose the closest microphone per moment.
+        var prepared: AutoMix.Result?
         if !remote.isEmpty {
-            let rf = AudioTrackFile(url: dir.appendingPathComponent("remote.m4a"), channels: 1, bitrate: 96_000)
-            for seg in remote {
-                guard let data = try? Data(contentsOf: seg.url), let track = WebMOpus.parse(data) else {
-                    Log.write("Remote microphone: could not read \(seg.url.lastPathComponent)")
-                    continue
+            prepared = AutoMix.prepare(segments: remote, macMic: mic, system: system, desk: desk, dir: dir) { p in
+                DispatchQueue.main.async {
+                    let v = p * 0.45
+                    if v - self.savingProgress >= 0.05 { self.savingProgress = v; self.onChange?() }
                 }
-                let first = seg.start + WebMOpus.firstPacketTime(track)
-                var pos = first
-                let n = WebMOpus.decode(track) { buf in
-                    rf.write(buf, atSeconds: pos)
-                    pos += Double(buf.frameLength) / 48000
-                } ?? 0
-                if n > 0 { coverage.append(first...(first + Double(n) / 48000)) }
-                if n == 0 {
-                    // Keep it for diagnosis.
-                    let keep = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("PPTRemote/unreadable")
-                    try? FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-                    try? FileManager.default.copyItem(at: seg.url, to: keep.appendingPathComponent("\(recID)-\(seg.url.lastPathComponent)"))
-                }
-                Log.write("Remote microphone: \(seg.url.lastPathComponent) → \(String(format: "%.1f", Double(n) / 48000)) s from \(String(format: "%.1f", first)) s")
             }
-            rf.close()
-            if rf.hasAudio { remoteURL = rf.url }
         }
+        let base = prepared == nil ? 0.0 : 0.45
+        let summary = prepared?.summary
+        DispatchQueue.main.async { self.lastMix = summary }
 
         let mixed = dir.appendingPathComponent("mixed.m4a")
         var hasAudio = false
         do {
-            hasAudio = try AudioMixer.mix(system: system, mic: mic, remote: remoteURL, remoteCoverage: coverage, to: mixed) { p in
+            hasAudio = try AudioMixer.mix(system: system, mic: mic, remote: prepared?.url, voice: prepared?.voice ?? [], to: mixed) { p in
                 DispatchQueue.main.async {
                     // Mixing is most of the work; the export afterwards only copies.
-                    let v = p * 0.9
+                    let v = base + p * (0.9 - base)
                     if v - self.savingProgress >= 0.05 || v >= 0.9 {
                         self.savingProgress = v
                         self.onChange?()
@@ -662,10 +668,13 @@ final class AudioTrackFile {
     private var written: AVAudioFramePosition = 0
     private static let rate = 48000.0
 
-    init(url: URL, channels: AVAudioChannelCount, bitrate: Int) {
+    private let pcm: Bool
+
+    init(url: URL, channels: AVAudioChannelCount, bitrate: Int, pcm: Bool = false) {
         self.url = url
         self.channels = channels
         self.bitrate = bitrate
+        self.pcm = pcm
     }
 
     var hasAudio: Bool { written > 0 }
@@ -682,7 +691,14 @@ final class AudioTrackFile {
     /// Writes `src` so that it starts `seconds` into the recording.
     func write(_ src: AVAudioPCMBuffer, atSeconds seconds: Double) {
         if file == nil {
-            let settings: [String: Any] = [
+            let settings: [String: Any] = pcm ? [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: Self.rate,
+                AVNumberOfChannelsKey: channels,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+            ] : [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: Self.rate,
                 AVNumberOfChannelsKey: channels,
@@ -762,9 +778,9 @@ final class AudioTrackFile {
 /// Combines the Mac's own sound with the microphone into one stereo track.
 enum AudioMixer {
     /// Returns false when there is no sound at all.
-    /// `remote`: the iPad's microphone, used for your voice wherever it has sound (`remoteCoverage`, in seconds);
-    /// the MacBook microphone fills the gaps (e.g. while the iPad's screen was locked).
-    static func mix(system: URL?, mic: URL?, remote: URL? = nil, remoteCoverage: [ClosedRange<Double>] = [],
+    /// `remote`: the iPad's microphone (already lined up); `voice` says per 10 ms which microphone carries
+    /// the voice (1 = remote, 0 = MacBook), see AutoMix.
+    static func mix(system: URL?, mic: URL?, remote: URL? = nil, voice: [Float] = [],
                     to out: URL, progress: (Double) -> Void) throws -> Bool {
         let sys = try system.map { try AVAudioFile(forReading: $0) }
         let micFile = try mic.map { try AVAudioFile(forReading: $0) }
@@ -785,8 +801,6 @@ enum AudioMixer {
             remGainBase = try speechGain(remFile, progress: { progress(0.15 + $0 * 0.15) })
             remFile.framePosition = 0
         }
-        let coverage = remoteCoverage.sorted { $0.lowerBound < $1.lowerBound }
-        var covIndex = 0
         var remWeight: Float = 0 // 1 = voice from the remote, 0 = from the MacBook
 
         let outFile = try AVAudioFile(forWriting: out, settings: [
@@ -828,11 +842,10 @@ enum AudioMixer {
                 let target: Float = rms > 0.01 ? 0.35 : 1
                 duck += (target - duck) * (target < duck ? 0.5 : 0.03)
                 // Which microphone carries the voice here (with a short crossfade at the switch).
-                let t = Double(done + AVAudioFramePosition(i)) / rate
-                while covIndex < coverage.count, coverage[covIndex].upperBound < t { covIndex += 1 }
-                let covered = covIndex < coverage.count && coverage[covIndex].contains(t)
+                let f = Int(Double(done + AVAudioFramePosition(i)) / rate * 100)
+                let voiceTarget: Float = remFile == nil ? 0 : (f < voice.count ? voice[f] : 0)
                 let wStart = remWeight
-                remWeight += ((covered ? 1 : 0) - remWeight) * 0.15
+                remWeight += (voiceTarget - remWeight) * 0.15
                 let wStep = (remWeight - wStart) / Float(end - i)
                 // Gentle voice compressor: level of this piece of the voice…
                 var ve: Float = 0

@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.8.2';
+const APP_VERSION = '1.9';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1909,6 +1909,7 @@ const Rec = {
     if (r.st !== 'off' && r.disp) bits.push(`Recording: ${r.disp}${r.mic ? ' · MacBook microphone' : ' · no MacBook microphone'}${r.rmic ? ' · iPad/phone microphone' : ''}`);
     if (r.err) bits.push(`⚠︎ ${r.err}`);
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
+    if (r.st === 'off' && r.file && r.mix) bits.push(r.mix);
     $('recInfo').textContent = bits.join('\n');
   },
 
