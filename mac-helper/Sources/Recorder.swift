@@ -38,6 +38,9 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Moments (seconds into the recording) when someone typed or used the trackpad on the Mac: you're at the desk.
     private var deskTimes: [Double] = []
     private var deskTimer: Timer?
+    /// Slide changes during the recording, for chapters in the video.
+    private var chapters: [Chapter] = []
+    private(set) var lastChapters = 0
     private var showBounds: CGRect?
     private var switching = false
 
@@ -85,6 +88,7 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         lastError = nil
         phase = .starting
+        chapters = []
         self.title = title
         onChange?()
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -160,6 +164,7 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         if remote.hasAudio, phase != .off { o["rmic"] = true }
         if let f = lastFile { o["file"] = f.lastPathComponent }
         if let m = lastMix, phase == .off { o["mix"] = m }
+        if lastChapters > 0, phase == .off { o["chap"] = lastChapters }
         if let e = lastError { o["err"] = e }
         if !displayName.isEmpty, phase != .off { o["disp"] = displayName }
         o["screen"] = Self.screenChoice
@@ -480,8 +485,10 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.awaitRemote {
                     let files = self.remote.files
                     let desk = self.deskTimes
+                    let chapters = self.chapters
                     DispatchQueue.global(qos: .userInitiated).async {
-                        self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, remote: files, desk: desk, dir: dir, done: done)
+                        self.mixAndExport(video: writer.outputURL, system: sysURL, mic: micURL, remote: files, desk: desk,
+                                          chapters: chapters, dir: dir, done: done)
                     }
                 }
             }
@@ -495,6 +502,13 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         let idle = types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? 99
         guard idle < 0.3, let t = queue.sync(execute: { mediaNow()?.seconds }) else { return }
         deskTimes.append(t)
+    }
+
+    /// Notes what's on screen now (a slide, the whiteboard, the Mac's screen) as a chapter of the video.
+    func mark(key: String, title: String) {
+        guard phase == .rec || phase == .paused || phase == .starting, chapters.last?.key != key else { return }
+        let t = queue.sync { mediaNow()?.seconds } ?? 0
+        chapters.append(Chapter(time: max(0, t), key: key, title: title))
     }
 
     /// "Save now" from the remote: don't wait for the rest of the iPad's audio.
@@ -530,7 +544,8 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    private func mixAndExport(video: URL, system: URL?, mic: URL?, remote: [(url: URL, start: Double)], desk: [Double], dir: URL, done: (() -> Void)?) {
+    private func mixAndExport(video: URL, system: URL?, mic: URL?, remote: [(url: URL, start: Double)], desk: [Double],
+                              chapters marks: [Chapter], dir: URL, done: (() -> Void)?) {
         // The remote's microphone: line it up with the MacBook's and choose the closest microphone per moment.
         var prepared: AutoMix.Result?
         if !remote.isEmpty {
@@ -565,6 +580,26 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         let folder = Self.folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let out = Self.uniqueURL(in: folder, name: Self.fileName(title: title, date: startedAt))
+
+        // One chapter per slide (and for the whiteboard / Mac screen), copied without re-encoding.
+        let length = AVURLAsset(url: video).duration.seconds
+        let chapters = Chapters.tidy(marks, duration: length)
+        do {
+            try Chapters.writeMP4(video: video, audio: hasAudio ? mixed : nil, chapters: chapters, to: out)
+            if chapters.count >= 2 {
+                let txt = out.deletingPathExtension().appendingPathExtension("chapters.txt")
+                try? Chapters.text(chapters).write(to: txt, atomically: true, encoding: .utf8)
+            }
+            DispatchQueue.main.async { self.lastChapters = chapters.count >= 2 ? chapters.count : 0 }
+            Log.write("Chapters: \(chapters.count >= 2 ? "\(chapters.count)" : "none")")
+            try? FileManager.default.removeItem(at: dir)
+            finished(out, error: nil, done: done)
+            return
+        } catch {
+            Log.write("Saving with chapters failed (\(error.localizedDescription)); saving without chapters")
+            try? FileManager.default.removeItem(at: out)
+            DispatchQueue.main.async { self.lastChapters = 0 }
+        }
 
         let comp = AVMutableComposition()
         do {

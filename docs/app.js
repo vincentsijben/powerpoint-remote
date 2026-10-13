@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.10';
+const APP_VERSION = '1.11';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1914,6 +1914,7 @@ const Rec = {
     if (r.err) bits.push(`⚠︎ ${r.err}`);
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
     if (r.st === 'off' && r.file && r.mix) bits.push(r.mix);
+    if (r.st === 'off' && r.file && r.chap) bits.push(`${r.chap} chapters (one per slide), also listed in a .chapters.txt file`);
     const ink = (App.st && App.st.inkpdf) || null;
     for (const id of ['inkAuto', 'inkPages', 'inkSave']) $(id).disabled = !ink;
     if (ink) {

@@ -66,6 +66,8 @@ final class SlideImages {
     private(set) var isLoaded = false
     /// Content key per slide (index 0 = slide 1); "" when the slide has no image (e.g. hidden & not exported).
     private(set) var keys: [String] = []
+    /// Slide titles (first line of text on each slide), "" when unknown.
+    private(set) var titles: [String] = []
     /// Width / height of the slides.
     private(set) var aspect: CGFloat = 16.0 / 9.0
 
@@ -77,6 +79,7 @@ final class SlideImages {
             self.pageForSlide.removeAll()
             self.document = nil
             var keys = [String](repeating: "", count: hidden.count)
+            var titles = [String](repeating: "", count: hidden.count)
             var aspect: CGFloat = 16.0 / 9.0
             if let path = pdfPath {
                 if let doc = PDFDocument(url: URL(fileURLWithPath: path)) {
@@ -85,7 +88,10 @@ final class SlideImages {
                     if let b = doc.page(at: 0)?.bounds(for: .mediaBox), b.height > 0 { aspect = b.width / b.height }
                     let t = Date()
                     for (slide, page) in self.pageForSlide where slide >= 1 && slide <= keys.count {
-                        if let p = doc.page(at: page) { keys[slide - 1] = Self.contentKey(p) }
+                        if let p = doc.page(at: page) {
+                            keys[slide - 1] = Self.contentKey(p)
+                            titles[slide - 1] = Self.title(of: p)
+                        }
                     }
                     Log.write("Loaded PDF with \(doc.pageCount) pages for \(hidden.count) slides (keys in \(Int(Date().timeIntervalSince(t) * 1000)) ms)")
                 } else {
@@ -96,10 +102,15 @@ final class SlideImages {
             DispatchQueue.main.async {
                 self.isLoaded = loaded
                 self.keys = keys
+                self.titles = titles
                 self.aspect = aspect
                 completion()
             }
         }
+    }
+
+    func title(for slide: Int) -> String {
+        slide >= 1 && slide <= titles.count ? titles[slide - 1] : ""
     }
 
     func key(for slide: Int) -> String {
@@ -213,6 +224,17 @@ final class SlideImages {
         ctx.translateBy(x: -bounds.minX, y: -bounds.minY)
         page.draw(with: .mediaBox, to: ctx)
         return ctx.makeImage()
+    }
+
+    /// The slide's title: the first line of text PowerPoint put in the PDF (titles come first).
+    private static func title(of page: PDFPage) -> String {
+        guard let text = page.string else { return "" }
+        for line in text.components(separatedBy: .newlines) {
+            let t = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard t.filter(\.isLetter).count >= 2 else { continue }
+            return t.count > 70 ? String(t.prefix(68)) + "…" : t
+        }
+        return ""
     }
 
     /// Hash of the rendered pixels: stays the same across exports as long as the slide looks the same.

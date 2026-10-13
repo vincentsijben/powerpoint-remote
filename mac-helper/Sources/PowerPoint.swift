@@ -508,6 +508,7 @@ final class PowerPoint {
         st.black = f[4] == "1"
         let num = { (s: String) in Double(s.replacingOccurrences(of: ",", with: ".")) ?? 0 }
         st.showBounds = CGRect(x: num(f[5]), y: num(f[6]), width: num(f[7]), height: num(f[8]))
+        if st.showing { st.showBounds = Self.realShowBounds(reported: st.showBounds, deck: (st.fullName as NSString).lastPathComponent) }
         if f[9] == "-" {
             st.listUnknown = true
         } else {
@@ -692,6 +693,27 @@ final class PowerPoint {
     // MARK: - Direct jump (slide show)
 
     /// Posting key events needs the Accessibility permission.
+    /// PowerPoint reports the slide show window's position without the offset of the screen it's on, so on
+    /// a second screen (projector) the overlay and the recording would end up on the wrong screen. The window
+    /// server knows the real position: use the PowerPoint window of the same size (not Presenter View).
+    static func realShowBounds(reported r: CGRect, deck: String) -> CGRect {
+        guard r.width > 10, r.height > 10,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return r }
+        var best: (CGRect, Int)?
+        for w in list where (w[kCGWindowOwnerName as String] as? String) == "Microsoft PowerPoint" {
+            guard let d = w[kCGWindowBounds as String] as? NSDictionary, let b = CGRect(dictionaryRepresentation: d),
+                  abs(b.width - r.width) < 2, abs(b.height - r.height) < 2 else { continue }
+            let name = (w[kCGWindowName as String] as? String) ?? ""
+            var score = 1
+            if name.localizedCaseInsensitiveContains("presenter") || name.localizedCaseInsensitiveContains("presentator") { score = 0 }
+            if !deck.isEmpty, name.contains((deck as NSString).deletingPathExtension) { score += 1 }
+            if b.origin == r.origin { score += 1 }
+            if best == nil || score > best!.1 { best = (b, score) }
+        }
+        guard let found = best?.0, found.origin != r.origin else { return r }
+        return found
+    }
+
     static var canJumpDirectly: Bool { AXIsProcessTrusted() }
 
     static func requestJumpPermission() {

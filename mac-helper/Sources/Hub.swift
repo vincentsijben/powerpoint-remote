@@ -137,7 +137,7 @@ final class Hub {
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let interval: TimeInterval = self.hasClients() ? 0.35 : 2.0
+            let interval: TimeInterval = self.hasClients() || self.recorder.isActive ? 0.35 : 2.0
             if Date().timeIntervalSince(self.lastPoll) >= interval { self.poll() }
             self.pollMediaIfNeeded()
             self.processRichQueue()
@@ -197,6 +197,7 @@ final class Hub {
         }
         overlay.update(showing: st.showing, black: st.black, bounds: st.showBounds, slide: st.index)
         recorder.followShow(st.showing ? st.showBounds : nil)
+        if recorder.isActive { markChapter() }
         if st != old { bump() }
     }
 
@@ -378,6 +379,21 @@ final class Hub {
         return true
     }
 
+    /// Chapter for what's on screen: the slide (with its title), the whiteboard, or the Mac's screen.
+    func markChapter() {
+        if state.showing {
+            if overlay.whiteboard {
+                recorder.mark(key: "wb", title: "Whiteboard")
+            } else {
+                let i = state.index
+                let t = images.title(for: i)
+                recorder.mark(key: "\(deckID)-\(i)", title: t.isEmpty ? "Slide \(i)" : "\(i). \(t)")
+            }
+        } else {
+            recorder.mark(key: "screen", title: "Mac screen")
+        }
+    }
+
     // MARK: - Drawings as PDF
 
     func inkPDFState() -> [String: Any] {
@@ -424,7 +440,9 @@ final class Hub {
     /// "rec start|pause|resume|stop": records the projector screen, the Mac's sound and the microphone.
     private func record(_ what: String) -> Bool {
         switch what {
-        case "start": recorder.start(showBounds: state.showing ? state.showBounds : nil, title: state.hasPresentation ? deckName : "")
+        case "start":
+            recorder.start(showBounds: state.showing ? state.showBounds : nil, title: state.hasPresentation ? deckName : "")
+            markChapter()
         case "pause": recorder.pause()
         case "resume": recorder.resume()
         case "stop": recorder.stop()
@@ -485,6 +503,7 @@ final class Hub {
                 overlay.setWhiteboard(rest == "on")
             }
             Log.write("Whiteboard \(overlay.whiteboard ? "on" : "off")")
+            if recorder.isActive { markChapter() }
             bump()
         case "sp":
             // "sp x,y r" (radius 0…10000 of the slide height) or "sp off"
