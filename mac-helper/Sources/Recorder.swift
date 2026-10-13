@@ -527,6 +527,12 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     pos += Double(buf.frameLength) / 48000
                 } ?? 0
                 if n > 0 { coverage.append(first...(first + Double(n) / 48000)) }
+                if n == 0 {
+                    // Keep it for diagnosis.
+                    let keep = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("PPTRemote/unreadable")
+                    try? FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+                    try? FileManager.default.copyItem(at: seg.url, to: keep.appendingPathComponent("\(recID)-\(seg.url.lastPathComponent)"))
+                }
                 Log.write("Remote microphone: \(seg.url.lastPathComponent) → \(String(format: "%.1f", Double(n) / 48000)) s from \(String(format: "%.1f", first)) s")
             }
             rf.close()

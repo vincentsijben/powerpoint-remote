@@ -135,36 +135,61 @@ enum WebMOpus {
     @discardableResult
     static func decode(_ t: Track, sink: (AVAudioPCMBuffer) -> Void) -> Int? {
         let ch = AVAudioChannelCount(max(1, min(2, t.channels)))
-        var asbd = AudioStreamBasicDescription(mSampleRate: 48000, mFormatID: kAudioFormatOpus, mFormatFlags: 0,
-                                               mBytesPerPacket: 0, mFramesPerPacket: 960, mBytesPerFrame: 0,
-                                               mChannelsPerFrame: ch, mBitsPerChannel: 0, mReserved: 0)
-        guard let inFmt = AVAudioFormat(streamDescription: &asbd),
-              let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: ch, interleaved: false),
-              let monoFmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1),
-              let conv = AVAudioConverter(from: inFmt, to: outFmt) else { return nil }
+        guard let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: ch, interleaved: false),
+              let monoFmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1) else { return nil }
+        // The decoder needs the packet length (browsers use 10, 20 or 60 ms); one decoder per length.
+        var decoders: [Int: (AVAudioFormat, AVAudioConverter)] = [:]
+        func decoder(_ frames: Int) -> (AVAudioFormat, AVAudioConverter)? {
+            if let d = decoders[frames] { return d }
+            var asbd = AudioStreamBasicDescription(mSampleRate: 48000, mFormatID: kAudioFormatOpus, mFormatFlags: 0,
+                                                   mBytesPerPacket: 0, mFramesPerPacket: UInt32(frames), mBytesPerFrame: 0,
+                                                   mChannelsPerFrame: ch, mBitsPerChannel: 0, mReserved: 0)
+            guard let f = AVAudioFormat(streamDescription: &asbd), let c = AVAudioConverter(from: f, to: outFmt) else { return nil }
+            decoders[frames] = (f, c)
+            return (f, c)
+        }
         var total = 0
+        var failures = 0
         var skip = t.preSkip // Opus starts with a few ms of decoder warm-up
-        let batch = 50
+
+        func emit(_ src: UnsafePointer<Float>, _ right: UnsafePointer<Float>?, count n: Int) {
+            let start = min(skip, n)
+            skip -= start
+            guard n - start > 0, let mono = AVAudioPCMBuffer(pcmFormat: monoFmt, frameCapacity: AVAudioFrameCount(n - start)) else { return }
+            mono.frameLength = AVAudioFrameCount(n - start)
+            let d = mono.floatChannelData![0]
+            if let right {
+                for k in start..<n { d[k - start] = (src[k] + right[k]) * 0.5 }
+            } else {
+                d.update(from: src + start, count: n - start)
+            }
+            total += n - start
+            sink(mono)
+        }
+
         var i = 0
         while i < t.packets.count {
-            let slice = t.packets[i..<min(t.packets.count, i + batch)]
-            i += batch
+            // A run of up to 50 packets of the same length.
+            let frames = samplesInPacket(t.packets[i].data)
+            var j = i
+            while j < t.packets.count, j - i < 50, samplesInPacket(t.packets[j].data) == frames { j += 1 }
+            let slice = t.packets[i..<j]
+            i = j
+            let samples = frames * slice.count
+            guard frames > 0, let (inFmt, conv) = decoder(frames) else { continue }
             let maxSize = slice.map { $0.data.count }.max() ?? 1
             let comp = AVAudioCompressedBuffer(format: inFmt, packetCapacity: AVAudioPacketCount(slice.count), maximumPacketSize: maxSize)
             var offset: Int64 = 0
-            var samples = 0
             for (k, pkt) in slice.enumerated() {
                 pkt.data.withUnsafeBytes { raw in
                     comp.data.advanced(by: Int(offset)).copyMemory(from: raw.baseAddress!, byteCount: pkt.data.count)
                 }
-                let n = samplesInPacket(pkt.data)
-                comp.packetDescriptions![k] = AudioStreamPacketDescription(mStartOffset: offset, mVariableFramesInPacket: UInt32(n), mDataByteSize: UInt32(pkt.data.count))
+                comp.packetDescriptions![k] = AudioStreamPacketDescription(mStartOffset: offset, mVariableFramesInPacket: 0, mDataByteSize: UInt32(pkt.data.count))
                 offset += Int64(pkt.data.count)
-                samples += n
             }
             comp.packetCount = AVAudioPacketCount(slice.count)
             comp.byteLength = UInt32(offset)
-            guard let pcm = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: AVAudioFrameCount(samples + 960)) else { return nil }
+            guard let pcm = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: AVAudioFrameCount(samples + 2880)) else { return nil }
             var given = false
             var err: NSError?
             let status = conv.convert(to: pcm, error: &err) { _, st in
@@ -174,26 +199,21 @@ enum WebMOpus {
                 return comp
             }
             if status == .error {
-                Log.write("Opus decoding failed: \(err?.localizedDescription ?? "?")")
-                return total > 0 ? total : nil
+                // Keep the timing right: a damaged stretch becomes silence.
+                failures += 1
+                if failures == 1 { Log.write("Opus decoding problem (\(err?.localizedDescription ?? "?")); replacing a damaged part with silence") }
+                conv.reset()
+                if let silence = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: AVAudioFrameCount(samples)) {
+                    silence.frameLength = AVAudioFrameCount(samples)
+                    for c in 0..<Int(ch) { silence.floatChannelData![c].update(repeating: 0, count: samples) }
+                    emit(silence.floatChannelData![0], ch > 1 ? silence.floatChannelData![1] : nil, count: samples)
+                }
+                continue
             }
-            let n = Int(pcm.frameLength)
-            let start = min(skip, n)
-            skip -= start
-            guard n - start > 0, let mono = AVAudioPCMBuffer(pcmFormat: monoFmt, frameCapacity: AVAudioFrameCount(n - start)) else { continue }
-            mono.frameLength = AVAudioFrameCount(n - start)
-            let d = mono.floatChannelData![0]
-            let l = pcm.floatChannelData![0]
-            if ch == 1 {
-                d.update(from: l + start, count: n - start)
-            } else {
-                let r = pcm.floatChannelData![1]
-                for k in start..<n { d[k - start] = (l[k] + r[k]) * 0.5 }
-            }
-            total += n - start
-            sink(mono)
+            emit(pcm.floatChannelData![0], ch > 1 ? pcm.floatChannelData![1] : nil, count: Int(pcm.frameLength))
         }
-        return total
+        if failures > 0 { Log.write("Opus: \(failures) damaged part(s) out of \(t.packets.count / 50 + 1)") }
+        return total > 0 && failures * 50 < t.packets.count ? total : (total > 0 ? total : nil)
     }
 
     /// Start time of the first packet (seconds since the recorder started), to place the sound exactly.
