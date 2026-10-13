@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.11';
+const APP_VERSION = '1.12';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1907,6 +1907,9 @@ const Rec = {
       sel.value = r.screen || 'auto';
     }
     sel.parentElement.classList.toggle('hidden', !r.screens || screens.length < 2);
+    const lang = $('recLang');
+    lang.parentElement.classList.toggle('hidden', !r.sub || r.sub === 'na');
+    if (r.sub && r.sub !== 'na' && document.activeElement !== lang) lang.value = r.sub;
     if (this.stopArmed && Date.now() > this.stopArmed) this.stopArmed = 0;
     $('recStop').textContent = this.stopArmed ? 'Tap again to stop' : '■ Stop & save';
     const bits = [];
@@ -1915,6 +1918,8 @@ const Rec = {
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
     if (r.st === 'off' && r.file && r.mix) bits.push(r.mix);
     if (r.st === 'off' && r.file && r.chap) bits.push(`${r.chap} chapters (one per slide), also listed in a .chapters.txt file`);
+    if (r.sst === 'busy') bits.push(`Making subtitles… ${r.sp || 0}% (the video can already be used)`);
+    else if (r.sst && r.snote) bits.push(r.sst === 'error' ? `⚠︎ ${r.snote}` : `✓ ${r.snote}`);
     const ink = (App.st && App.st.inkpdf) || null;
     for (const id of ['inkAuto', 'inkPages', 'inkSave']) $(id).disabled = !ink;
     if (ink) {
@@ -1940,6 +1945,7 @@ const Rec = {
     $('recStart').addEventListener('click', () => { buzz(20); App.send('rec start'); });
     $('recScreen').addEventListener('change', (e) => App.send(`rec screen ${e.target.value}`));
     $('recSaveNow').addEventListener('click', () => App.send('rec savenow'));
+    $('recLang').addEventListener('change', (e) => App.send(`rec lang ${e.target.value}`));
     $('inkAuto').addEventListener('change', (e) => App.send(`ink auto ${e.target.checked ? 'on' : 'off'}`));
     $('inkPages').addEventListener('change', (e) => App.send(`ink pages ${e.target.value}`));
     $('inkSave').addEventListener('click', () => { buzz(15); App.send('ink save'); });

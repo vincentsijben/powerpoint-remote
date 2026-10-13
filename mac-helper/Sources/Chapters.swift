@@ -37,7 +37,8 @@ enum Chapters {
     }
 
     /// Writes the MP4: video and sound copied as they are (no re-encoding), plus a chapter track.
-    static func writeMP4(video: URL, audio: URL?, chapters: [Chapter], to out: URL) throws {
+    static func writeMP4(video: URL, audio: URL?, chapters: [Chapter], subtitles: [SubtitleCue] = [], language: String? = nil,
+                         to out: URL) throws {
         let vAsset = AVURLAsset(url: video)
         guard let vTrack = vAsset.tracks(withMediaType: .video).first else { throw err("no video") }
         let duration = vTrack.timeRange.end
@@ -75,6 +76,35 @@ enum Chapters {
                     guard end > start, let sb = textSample(c.title, start: start, duration: end - start, format: fd) else { continue }
                     textSamples.append(sb)
                 }
+            }
+        }
+
+        var sIn: AVAssetWriterInput?
+        var subSamples: [CMSampleBuffer] = []
+        if !subtitles.isEmpty, let fd = subtitleFormat() {
+            let i = AVAssetWriterInput(mediaType: .subtitle, outputSettings: nil, sourceFormatHint: fd)
+            if let language {
+                let tag = language.replacingOccurrences(of: "_", with: "-")
+                i.extendedLanguageTag = tag
+                i.languageCode = Locale(identifier: language).language.languageCode.flatMap { code in
+                    // ISO 639-2 (three letters), as MP4 files expect.
+                    ["nl": "nld", "en": "eng", "de": "deu", "fr": "fra", "es": "spa"][code.identifier]
+                }
+            }
+            if writer.canAdd(i) {
+                writer.add(i)
+                sIn = i
+                // A continuous track: empty samples fill the silences between subtitles.
+                var t = CMTime.zero
+                for c in subtitles {
+                    let start = CMTime(seconds: c.start, preferredTimescale: 1000)
+                    let end = min(CMTime(seconds: c.end, preferredTimescale: 1000), duration)
+                    guard end > start, start >= t else { continue }
+                    if start > t, let gap = subtitleSample("", start: t, duration: start - t, format: fd) { subSamples.append(gap) }
+                    if let sb = subtitleSample(c.text, start: start, duration: end - start, format: fd) { subSamples.append(sb) }
+                    t = end
+                }
+                if duration > t, let tail = subtitleSample("", start: t, duration: duration - t, format: fd) { subSamples.append(tail) }
             }
         }
 
@@ -134,6 +164,14 @@ enum Chapters {
                 return textSamples[idx - 1]
             }
         }
+        if let sIn {
+            var idx = 0
+            pump(sIn, label: "s") {
+                guard idx < subSamples.count else { return nil }
+                idx += 1
+                return subSamples[idx - 1]
+            }
+        }
         group.wait()
         vReader.cancelReading()
         aReader?.cancelReading()
@@ -172,6 +210,60 @@ enum Chapters {
                 flavor: nil, mediaType: kCMMediaType_Text, formatDescriptionOut: &fd)
         }
         return status == noErr ? fd : nil
+    }
+
+    /// 3GPP timed text ('tx3g') sample description: white, centred, at the bottom.
+    private static func subtitleFormat() -> CMFormatDescription? {
+        var d = Data()
+        func u8(_ v: UInt8) { d.append(v) }
+        func u16(_ v: UInt16) { d.append(contentsOf: [UInt8(v >> 8), UInt8(v & 0xFF)]) }
+        func u32(_ v: UInt32) { u16(UInt16(v >> 16)); u16(UInt16(v & 0xFFFF)) }
+        u32(0)
+        d.append(contentsOf: Array("tx3g".utf8))
+        d.append(contentsOf: [0, 0, 0, 0, 0, 0])
+        u16(1)                       // data reference index
+        u32(0)                       // display flags
+        u8(1); u8(0xFF)              // centred, at the bottom
+        u32(0)                       // background: transparent
+        u16(0); u16(0); u16(0); u16(0) // text box
+        u16(0); u16(0); u16(1); u8(0); u8(18); u32(0xFFFF_FFFF) // style: font 1, 18 pt, white
+        let name = Array("Sans-Serif".utf8)
+        u32(UInt32(4 + 4 + 2 + 2 + 1 + name.count))
+        d.append(contentsOf: Array("ftab".utf8))
+        u16(1); u16(1); u8(UInt8(name.count))
+        d.append(contentsOf: name)
+        let size = UInt32(d.count)
+        d.replaceSubrange(0..<4, with: [UInt8(size >> 24), UInt8((size >> 16) & 0xFF), UInt8((size >> 8) & 0xFF), UInt8(size & 0xFF)])
+        var fd: CMFormatDescription?
+        let status = d.withUnsafeBytes { raw in
+            CMTextFormatDescriptionCreateFromBigEndianTextDescriptionData(
+                allocator: nil, bigEndianTextDescriptionData: raw.bindMemory(to: UInt8.self).baseAddress!, size: d.count,
+                flavor: nil, mediaType: kCMMediaType_Subtitle, formatDescriptionOut: &fd)
+        }
+        return status == noErr ? fd : nil
+    }
+
+    private static func subtitleSample(_ text: String, start: CMTime, duration: CMTime, format: CMFormatDescription) -> CMSampleBuffer? {
+        let utf8 = Array(text.utf8.prefix(2000))
+        var d = Data([UInt8(utf8.count >> 8), UInt8(utf8.count & 0xFF)])
+        d.append(contentsOf: utf8)
+        return sample(d, start: start, duration: duration, format: format)
+    }
+
+    private static func sample(_ d: Data, start: CMTime, duration: CMTime, format: CMFormatDescription) -> CMSampleBuffer? {
+        var block: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: d.count, blockAllocator: nil,
+                                                 customBlockSource: nil, offsetToData: 0, dataLength: d.count, flags: 0,
+                                                 blockBufferOut: &block) == noErr, let block else { return nil }
+        let ok = d.withUnsafeBytes { CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: d.count) }
+        guard ok == noErr else { return nil }
+        var timing = CMSampleTimingInfo(duration: duration, presentationTimeStamp: start, decodeTimeStamp: .invalid)
+        var size = d.count
+        var sb: CMSampleBuffer?
+        guard CMSampleBufferCreateReady(allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: 1,
+                                        sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1,
+                                        sampleSizeArray: &size, sampleBufferOut: &sb) == noErr else { return nil }
+        return sb
     }
 
     private static func textSample(_ text: String, start: CMTime, duration: CMTime, format: CMFormatDescription) -> CMSampleBuffer? {

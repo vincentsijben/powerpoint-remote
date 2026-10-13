@@ -41,6 +41,22 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Slide changes during the recording, for chapters in the video.
     private var chapters: [Chapter] = []
     private(set) var lastChapters = 0
+
+    /// Language for automatic subtitles ("off" = none).
+    static var subtitleLanguage: String {
+        get { UserDefaults.standard.string(forKey: "subtitleLang") ?? "nl_NL" }
+        set { UserDefaults.standard.set(newValue, forKey: "subtitleLang") }
+    }
+    /// Subtitles of the last recording: "busy" (with progress), "done", or "error".
+    private(set) var subState = ""
+    private(set) var subProgress = 0
+    private(set) var subNote = ""
+    var subtitlesAvailable: Bool {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) { return true }
+        #endif
+        return false
+    }
     private var showBounds: CGRect?
     private var switching = false
 
@@ -89,6 +105,7 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         lastError = nil
         phase = .starting
         chapters = []
+        if subState != "busy" { subState = ""; subNote = "" }
         self.title = title
         onChange?()
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -165,6 +182,12 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         if let f = lastFile { o["file"] = f.lastPathComponent }
         if let m = lastMix, phase == .off { o["mix"] = m }
         if lastChapters > 0, phase == .off { o["chap"] = lastChapters }
+        o["sub"] = subtitlesAvailable ? Self.subtitleLanguage : "na"
+        if !subState.isEmpty {
+            o["sst"] = subState
+            o["sp"] = subProgress
+            if !subNote.isEmpty { o["snote"] = subNote }
+        }
         if let e = lastError { o["err"] = e }
         if !displayName.isEmpty, phase != .off { o["disp"] = displayName }
         o["screen"] = Self.screenChoice
@@ -592,6 +615,15 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             DispatchQueue.main.async { self.lastChapters = chapters.count >= 2 ? chapters.count : 0 }
             Log.write("Chapters: \(chapters.count >= 2 ? "\(chapters.count)" : "none")")
+            let lang = Self.subtitleLanguage
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *), hasAudio, lang != "off" {
+                // The video is ready to use now; subtitles follow (the raw files are kept until then).
+                finished(out, error: nil, done: done)
+                makeSubtitles(out: out, video: video, audio: mixed, chapters: chapters, dir: dir, lang: lang)
+                return
+            }
+            #endif
             try? FileManager.default.removeItem(at: dir)
             finished(out, error: nil, done: done)
             return
@@ -635,6 +667,68 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.finished(nil, error: "Saving failed: \(export.error?.localizedDescription ?? "unknown error") (raw files kept in \(dir.path))", done: done)
             }
         }
+    }
+
+    #if compiler(>=6.2)
+    /// Transcribes the recording on the Mac, saves .srt / .vtt subtitles and a transcript per slide next to the
+    /// video, and adds the subtitles to the video itself (QuickTime and VLC: Subtitles menu).
+    @available(macOS 26.0, *)
+    private func makeSubtitles(out: URL, video: URL, audio: URL, chapters: [Chapter], dir: URL, lang: String) {
+        let name = Subtitles.languages.first { $0.id == lang }?.name ?? lang
+        let docTitle = out.deletingPathExtension().lastPathComponent
+        DispatchQueue.main.async {
+            self.subState = "busy"
+            self.subProgress = 0
+            self.subNote = ""
+            self.onChange?()
+        }
+        let started = Date()
+        Task.detached(priority: .utility) {
+            defer { try? FileManager.default.removeItem(at: dir) }
+            do {
+                let words = try await Transcriber.transcribe(audio: audio, locale: lang) { p in
+                    DispatchQueue.main.async {
+                        let v = Int(p * 90)
+                        if v >= self.subProgress + 5 { self.subProgress = v; self.onChange?() }
+                    }
+                }
+                let cues = Subtitles.cues(from: words)
+                let base = out.deletingPathExtension()
+                try Subtitles.srt(cues).write(to: base.appendingPathExtension("srt"), atomically: true, encoding: .utf8)
+                try Subtitles.vtt(cues).write(to: base.appendingPathExtension("vtt"), atomically: true, encoding: .utf8)
+                let transcript = base.deletingLastPathComponent().appendingPathComponent("\(base.lastPathComponent) – transcript.txt")
+                try Subtitles.transcript(words, chapters: chapters, title: docTitle, language: name)
+                    .write(to: transcript, atomically: true, encoding: .utf8)
+                // Put the subtitles in the video too (copying, no re-encoding), if it's still where we saved it.
+                if !cues.isEmpty, FileManager.default.fileExists(atPath: out.path) {
+                    let tmp = dir.appendingPathComponent("with-subtitles.mp4")
+                    try Chapters.writeMP4(video: video, audio: audio, chapters: chapters, subtitles: cues, language: lang, to: tmp)
+                    _ = try FileManager.default.replaceItemAt(out, withItemAt: tmp)
+                }
+                Log.write("Subtitles (\(name)): \(cues.count) lines, \(words.count) words in \(Int(Date().timeIntervalSince(started))) s")
+                DispatchQueue.main.async {
+                    self.subState = "done"
+                    self.subProgress = 100
+                    self.subNote = cues.isEmpty ? "No speech recognised" : "\(name) subtitles (.srt, .vtt, in the video) and a transcript per slide"
+                    self.onChange?()
+                }
+            } catch {
+                Log.write("Subtitles failed: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.subState = "error"
+                    self.subNote = "Subtitles failed: \(error.localizedDescription)"
+                    self.onChange?()
+                }
+            }
+        }
+    }
+
+    #endif
+
+    func setSubtitleLanguage(_ lang: String) {
+        guard lang == "off" || Subtitles.languages.contains(where: { $0.id == lang }) else { return }
+        Self.subtitleLanguage = lang
+        onChange?()
     }
 
     private func finished(_ url: URL?, error: String?, done: (() -> Void)?) {
@@ -960,3 +1054,6 @@ enum AudioMixer {
         return min(4, max(1, 0.12 / loud))
     }
 }
+
+/// State is only changed on the main queue; background work hops there.
+extension LectureRecorder: @unchecked Sendable {}

@@ -18,6 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use the newest Xcode (subtitles need the macOS 26 SDK)
+        run: |
+          X=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$X" ]; then sudo xcode-select -s "$X"; fi
+          xcodebuild -version || true
+          swift --version
+
       - name: Build (universal)
         run: UNIVERSAL=1 ./mac-helper/build.sh
 

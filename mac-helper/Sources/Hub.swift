@@ -447,6 +447,7 @@ final class Hub {
         case "resume": recorder.resume()
         case "stop": recorder.stop()
         case "savenow": recorder.saveWithoutWaiting()
+        case _ where what.hasPrefix("lang "): recorder.setSubtitleLanguage(String(what.dropFirst(5)))
         default:
             guard what.hasPrefix("screen ") else { return false }
             recorder.chooseScreen(String(what.dropFirst(7)))
