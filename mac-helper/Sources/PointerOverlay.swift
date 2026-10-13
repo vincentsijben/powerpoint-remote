@@ -80,7 +80,7 @@ final class PointerOverlay {
         showFrame = bounds
         if win.frame != frame {
             win.setFrame(frame, display: true)
-            if capture.isRunning { capture.start(frame: bounds) }
+            if capture.isRunning { startCapture(frame: bounds) }
             layoutZoom()
         }
         view.isHidden = black && !whiteboard
@@ -109,10 +109,15 @@ final class PointerOverlay {
 
     // MARK: - Live zoom
 
+    private func startCapture(frame: CGRect) {
+        capture.overlayWindowID = CGWindowID(max(0, window?.windowNumber ?? 0))
+        capture.start(frame: frame)
+    }
+
     /// Starts the screen capture ahead of time so the first zoom is instant.
     func prepareZoom() {
         guard LiveZoomCapture.hasPermission, window?.isVisible == true, showFrame.width > 10 else { return }
-        capture.start(frame: showFrame)
+        startCapture(frame: showFrame)
     }
 
     /// Magnifies the slide on the projector: `center` of the visible part (0…1) and `scale` (1 = whole slide).
@@ -125,7 +130,7 @@ final class PointerOverlay {
         }
         let s = min(8, max(1, scale))
         zoomTarget = (Self.clampCenter(center, scale: s), s)
-        capture.start(frame: showFrame)
+        startCapture(frame: showFrame)
         if zoomView.hasFrame { animateZoom() }
     }
 

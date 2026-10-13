@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage
 import ServiceManagement
+import UniformTypeIdentifiers
 
 /// Menu bar app: shows connection status, the PIN, and the network address (with QR code).
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -127,6 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addAction(menu, "Open Recordings Folder", #selector(openRecordings))
         addAction(menu, "Choose Recordings Folder…", #selector(chooseRecordings))
         menu.addItem(.separator())
+        addAction(menu, "Present PDF…", #selector(presentPDF))
+        if let u = hub.pdf.url { addAction(menu, "Close PDF “\(u.lastPathComponent)”", #selector(closePDF)) }
         addAction(menu, "Reload Slides from PowerPoint", #selector(reload))
         addAction(menu, "Open Sounds Folder…", #selector(openSounds))
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
@@ -185,6 +188,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func reload() { hub.reloadDeck() }
+
+    @objc private func presentPDF() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.message = "Choose a PDF to present with the remote (slides from Canva, Google Slides, Keynote, LaTeX…)"
+        panel.prompt = "Present"
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, let url = panel.url { hub.presentPDF(url) }
+    }
+
+    @objc private func closePDF() { hub.closePDF() }
+
+    /// "Open With › PPT Remote" or dropping a PDF on the app.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let url = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) { hub.presentPDF(url) }
+    }
 
     @objc private func startRecording() { hub.handle(command: "rec start") }
     @objc private func saveDrawings() { hub.saveInkPDF() }

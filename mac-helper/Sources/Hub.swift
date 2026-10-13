@@ -31,6 +31,11 @@ final class Hub {
     static let shared = Hub()
 
     let ppt = PowerPoint()
+    let pdf = PDFShow()
+    /// The app whose presentation the remotes control: PowerPoint, or a PDF shown by this app.
+    private(set) lazy var app: SlideApp = ppt
+    /// PowerPoint's open presentations while a PDF is controlled (for the picker).
+    private var pptOpen: [OpenPresentation] = []
     let images = SlideImages()
     let overlay = PointerOverlay()
     let sounds = SoundBoard()
@@ -116,7 +121,7 @@ final class Hub {
 
     /// Selection passed to the AppleScripts ("" = follow PowerPoint).
     private var selection: String {
-        guard let sel = selectedFullName, state.open.isEmpty || state.open.contains(where: { $0.fullName == sel }) else { return "" }
+        guard app === ppt, let sel = selectedFullName, state.open.isEmpty || state.open.contains(where: { $0.fullName == sel }) else { return "" }
         return sel
     }
 
@@ -128,6 +133,7 @@ final class Hub {
         sounds.onChange = { [weak self] in self?.bump() }
         sounds.start()
         recorder.onChange = { [weak self] in self?.bump() }
+        pdf.onChange = { [weak self] in self?.poll() }
         overlay.onShowEnded = { [weak self] ink in
             guard let self else { return }
             self.savedInk = ink
@@ -151,7 +157,12 @@ final class Hub {
         lastPoll = Date()
         let withList = Date().timeIntervalSince(lastListPoll) > 2
         if withList { lastListPoll = Date() }
-        ppt.pollState(selection: selection, withList: withList) { [weak self] st in
+        if withList, app !== ppt, ppt.isRunning {
+            ppt.pollState(selection: "", withList: true) { [weak self] st in
+                if let st, !st.listUnknown { self?.pptOpen = st.open }
+            }
+        }
+        app.pollState(selection: selection, withList: withList) { [weak self] st in
             guard let self else { return }
             self.polling = false
             if let st { self.apply(st) }
@@ -170,7 +181,8 @@ final class Hub {
             st.listUnknown = false
         }
         state = st
-        if let sel = selectedFullName, st.running, !st.open.isEmpty, !st.open.contains(where: { $0.fullName == sel }) {
+        if app === ppt { pptOpen = st.open }
+        if app === ppt, let sel = selectedFullName, st.running, !st.open.isEmpty, !st.open.contains(where: { $0.fullName == sel }) {
             Log.write("Selected presentation was closed; following PowerPoint again")
             selectedFullName = nil
         }
@@ -202,12 +214,12 @@ final class Hub {
     }
 
     func reloadDeck() {
-        guard ppt.isRunning, !loading else { return }
+        guard app.isRunning, !loading else { return }
         loading = true
         bump()
         Log.write("Loading deck…")
         let t = Date()
-        ppt.loadDeck(selection: selection) { [weak self] load in
+        app.loadDeck(selection: selection) { [weak self] load in
             guard let self else { return }
             guard let load else {
                 self.loading = false
@@ -241,7 +253,7 @@ final class Hub {
     }
 
     private func refreshNotes(_ index: Int) {
-        ppt.notes(selection: selection, for: index) { [weak self] text in
+        app.notes(selection: selection, for: index) { [weak self] text in
             guard let self, let text, index >= 1, index <= self.notes.count else { return }
             if self.notes[index - 1] != text {
                 self.notes[index - 1] = text
@@ -269,7 +281,7 @@ final class Hub {
     }
 
     private func processRichQueue() {
-        guard !richBusy, !loading, !richQueue.isEmpty, ppt.isRunning else { return }
+        guard !richBusy, !loading, !richQueue.isEmpty, app.isRunning else { return }
         let slide = richQueue[0]
         // Current/next slide right away; the rest only while the presenter isn't clicking.
         let urgent = slide == state.index || slide == state.index + 1
@@ -278,7 +290,7 @@ final class Hub {
         guard !richDone.contains(slide) else { return }
         richBusy = true
         let deck = deckID
-        ppt.richNotes(selection: selection, for: slide) { [weak self] paras in
+        app.richNotes(selection: selection, for: slide) { [weak self] paras in
             guard let self else { return }
             self.richBusy = false
             guard deck == self.deckID else { return }
@@ -294,7 +306,7 @@ final class Hub {
 
     private func refreshMedia() {
         let slide = state.index
-        ppt.mediaList(selection: selection) { [weak self] items in
+        app.mediaList(selection: selection) { [weak self] items in
             guard let self, self.state.showing, self.state.index == slide else { return }
             self.mediaSlide = slide
             if items != self.media {
@@ -317,7 +329,7 @@ final class Hub {
     private func mediaCommand(_ cmd: String, shape: Int, value: Int = 0) {
         mediaBusy = true
         let slide = state.index
-        ppt.media(selection: selection, cmd, shape: shape, value: value) { [weak self] st in
+        app.media(selection: selection, cmd, shape: shape, value: value) { [weak self] st in
             guard let self else { return }
             self.mediaBusy = false
             guard let st, self.state.index == slide else { return }
@@ -370,7 +382,7 @@ final class Hub {
         guard Self.navCommands.contains(cmd) else { return false }
         Log.write("Command: \(command)")
         lastCommandAt = Date()
-        ppt.navigate(selection: selection, cmd, target: Int(rest) ?? 0) { [weak self] st in
+        app.navigate(selection: selection, cmd, target: Int(rest) ?? 0) { [weak self] st in
             guard let self else { return }
             if let st { self.apply(st) }
             // Starting/ending a show takes a moment to settle; check again shortly.
@@ -458,9 +470,13 @@ final class Hub {
     private func use(_ id: String) -> Bool {
         if id == "auto" {
             selectedFullName = nil
+            switchApp(ppt)
             Log.write("Presentation: follow PowerPoint")
-        } else if let p = state.open.first(where: { Self.presentationID($0.fullName) == id }) {
+        } else if let path = ([pdf.url?.path].compactMap { $0 } + PDFShow.recents).first(where: { Self.presentationID(PDFShow.prefix + $0) == id }) {
+            return presentPDF(URL(fileURLWithPath: path))
+        } else if let p = pptOpen.first(where: { Self.presentationID($0.fullName) == id }) {
             selectedFullName = p.fullName
+            switchApp(ppt)
             Log.write("Presentation selected: \(p.name)")
         } else {
             return false
@@ -468,6 +484,35 @@ final class Hub {
         bump()
         poll()
         return true
+    }
+
+    /// Shows a PDF with the built-in presenter (from the Mac menu, "Open With", or the remote's list).
+    @discardableResult
+    func presentPDF(_ url: URL) -> Bool {
+        if pdf.url?.path != url.path || !pdf.isRunning {
+            guard pdf.open(url) else { return false }
+        }
+        switchApp(pdf)
+        bump()
+        poll()
+        return true
+    }
+
+    func closePDF() {
+        pdf.close()
+        if app === pdf { switchApp(ppt) }
+        bump()
+        poll()
+    }
+
+    private func switchApp(_ a: SlideApp) {
+        guard a !== app else { return }
+        if app === pdf { pdf.go("end") }
+        app = a
+        Log.write("Controlling: \(a.kind == "pdf" ? "PDF" : "PowerPoint")")
+        mediaSlide = -1
+        media = []
+        mediaStatus = [:]
     }
 
     /// Pointer coordinates arrive as integers 0…10000 relative to the slide.
@@ -568,11 +613,20 @@ final class Hub {
 
     // MARK: - State JSON
 
+    /// PowerPoint's open presentations, the PDF being shown, and recently shown PDFs.
     func presentationList() -> [[String: Any]] {
         let current = state.fullName
-        return state.open.map {
-            ["id": Self.presentationID($0.fullName), "name": $0.name, "current": $0.fullName == current]
+        var list: [[String: Any]] = (app === ppt ? state.open : pptOpen).map {
+            ["id": Self.presentationID($0.fullName), "name": $0.name, "current": app === ppt && $0.fullName == current, "sub": "PowerPoint"]
         }
+        if let u = pdf.url {
+            list.append(["id": Self.presentationID(pdf.fullName), "name": u.lastPathComponent, "current": app === pdf, "sub": "PDF"])
+        }
+        for path in PDFShow.recents where path != pdf.url?.path {
+            list.append(["id": Self.presentationID(PDFShow.prefix + path), "name": (path as NSString).lastPathComponent,
+                         "current": false, "sub": "Recent PDF"])
+        }
+        return list
     }
 
     /// - Parameter notesFor: slides whose notes to include (nil = current and next).
@@ -606,8 +660,9 @@ final class Hub {
             "inkpdf": inkPDFState(),
             "skey": sounds.listKey,
             "svol": sounds.volume,
-            "auto": selectedFullName == nil,
-            "pcount": state.open.count,
+            "auto": selectedFullName == nil && app === ppt,
+            "app": app.kind,
+            "pcount": presentationList().count,
         ]
         if !richOut.isEmpty { obj["rich"] = richOut }
         if !media.isEmpty, state.showing {

@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.12';
+const APP_VERSION = '1.13';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -900,8 +900,8 @@ const App = {
     let msg = '';
     if (!this.transport) msg = 'Not connected';
     else if (!s) msg = 'Waiting for the Mac…';
-    else if (!s.ppt) msg = 'PowerPoint is not running on the Mac';
-    else if (!s.pres) msg = 'Open a presentation in PowerPoint';
+    else if (!s.ppt) msg = s.pcount ? 'PowerPoint is not running. Tap the name at the top to present a PDF' : 'PowerPoint is not running on the Mac';
+    else if (!s.pres) msg = 'Open a presentation in PowerPoint, or a PDF (Mac menu › Present PDF…)';
     else if (s.loading && !s.images) msg = 'Loading slides…';
     if (msg) {
       this.setImg($('currentImg'), $('currentMsg'), null, msg);
@@ -1032,7 +1032,7 @@ const App = {
       list.appendChild(b);
     };
     add('Automatic', 'Follow PowerPoint: the presentation in the slide show or in front', s && s.auto, 'use auto');
-    for (const p of this.plist) add(p.name, p.current ? 'Now controlled' : '', s && !s.auto && p.current, `use ${p.id}`);
+    for (const p of this.plist) add(p.name, p.current ? 'Now controlled' : (p.sub || ''), s && !s.auto && p.current, `use ${p.id}`);
     $('presView').classList.remove('hidden');
   },
 

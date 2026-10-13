@@ -7,6 +7,8 @@ import ScreenCaptureKit
 final class LiveZoomCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Called on the main thread with every new frame.
     var onFrame: ((IOSurface) -> Void)?
+    /// Our overlay window (laser, ink…): left out, otherwise it would be magnified twice.
+    var overlayWindowID: CGWindowID = 0
 
     private var stream: SCStream?
     private var streamFrame: CGRect = .zero
@@ -53,8 +55,9 @@ final class LiveZoomCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             return
         }
         // Leave out our own overlay (laser, ink…), otherwise it would be magnified twice.
-        let mine = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-        let filter = SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
+        // Only our overlay is left out: the PDF presenter's window (also ours) must be in the picture.
+        let overlay = content.windows.filter { $0.windowID == overlayWindowID }
+        let filter = SCContentFilter(display: display, excludingWindows: overlay)
         let scale = NSScreen.screens.first(where: { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID })?.backingScaleFactor ?? 2
         let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
             .intersection(CGRect(origin: .zero, size: display.frame.size))
