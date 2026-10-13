@@ -59,7 +59,9 @@ struct MediaStatus: Equatable {
 /// Every script gets the full name of the selected presentation ("" = follow PowerPoint) as first argument.
 final class PowerPoint {
     static let bundleID = "com.microsoft.Powerpoint"
-    private let queue = DispatchQueue(label: "pptremote.powerpoint")
+    /// NSAppleScript isn't thread-safe: every in-process script (PowerPoint and Keynote) runs on this one queue.
+    static let scriptQueue = DispatchQueue(label: "pptremote.applescript")
+    private let queue = PowerPoint.scriptQueue
     private static let US = "\u{1F}"
     private static let RS = "\u{1E}"
     private static let GS = "\u{1D}"
@@ -768,7 +770,7 @@ final class PowerPoint {
 
     // MARK: - Helpers
 
-    private static func exportDirectories() -> [String] {
+    static func exportDirectories() -> [String] {
         let home = NSHomeDirectory()
         // PowerPoint is sandboxed: try a folder we own first, then PowerPoint's own container
         // (always writable for PowerPoint, but reading it may need "access data from other apps").

@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         addAction(menu, "Present PDF…", #selector(presentPDF))
         if let u = hub.pdf.url { addAction(menu, "Close PDF “\(u.lastPathComponent)”", #selector(closePDF)) }
-        addAction(menu, "Reload Slides from PowerPoint", #selector(reload))
+        addAction(menu, "Reload Slides", #selector(reload))
         addAction(menu, "Open Sounds Folder…", #selector(openSounds))
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self

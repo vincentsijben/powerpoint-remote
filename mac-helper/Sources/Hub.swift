@@ -31,11 +31,16 @@ final class Hub {
     static let shared = Hub()
 
     let ppt = PowerPoint()
+    let keynote = Keynote()
     let pdf = PDFShow()
-    /// The app whose presentation the remotes control: PowerPoint, or a PDF shown by this app.
+    /// The app whose presentation the remotes control: PowerPoint, Keynote, or a PDF shown by this app.
     private(set) lazy var app: SlideApp = ppt
-    /// PowerPoint's open presentations while a PDF is controlled (for the picker).
-    private var pptOpen: [OpenPresentation] = []
+    /// Open presentations per app ("powerpoint", "keynote"), also of the apps not controlled now (for the picker).
+    private var openLists: [String: [OpenPresentation]] = [:]
+    private var showingIn: [String: Bool] = [:]
+    /// Automatic: follow the app with a running slide show (PowerPoint or Keynote), otherwise the one in use.
+    private(set) var autoFollow = true
+    private var scriptedApps: [SlideApp] { [ppt, keynote] }
     let images = SlideImages()
     let overlay = PointerOverlay()
     let sounds = SoundBoard()
@@ -121,7 +126,7 @@ final class Hub {
 
     /// Selection passed to the AppleScripts ("" = follow PowerPoint).
     private var selection: String {
-        guard app === ppt, let sel = selectedFullName, state.open.isEmpty || state.open.contains(where: { $0.fullName == sel }) else { return "" }
+        guard app !== pdf, let sel = selectedFullName, state.open.isEmpty || state.open.contains(where: { $0.fullName == sel }) else { return "" }
         return sel
     }
 
@@ -157,9 +162,20 @@ final class Hub {
         lastPoll = Date()
         let withList = Date().timeIntervalSince(lastListPoll) > 2
         if withList { lastListPoll = Date() }
-        if withList, app !== ppt, ppt.isRunning {
-            ppt.pollState(selection: "", withList: true) { [weak self] st in
-                if let st, !st.listUnknown { self?.pptOpen = st.open }
+        if withList {
+            // The other apps: their presentations for the picker, and whether a slide show started there.
+            for other in scriptedApps where other !== app {
+                guard other.isRunning else {
+                    openLists[other.kind] = []
+                    showingIn[other.kind] = false
+                    continue
+                }
+                other.pollState(selection: "", withList: true) { [weak self] st in
+                    guard let self, let st else { return }
+                    if !st.listUnknown { self.openLists[other.kind] = st.hasPresentation ? st.open : [] }
+                    self.showingIn[other.kind] = st.showing
+                    self.followIfNeeded()
+                }
             }
         }
         app.pollState(selection: selection, withList: withList) { [weak self] st in
@@ -181,10 +197,14 @@ final class Hub {
             st.listUnknown = false
         }
         state = st
-        if app === ppt { pptOpen = st.open }
-        if app === ppt, let sel = selectedFullName, st.running, !st.open.isEmpty, !st.open.contains(where: { $0.fullName == sel }) {
-            Log.write("Selected presentation was closed; following PowerPoint again")
+        if app !== pdf {
+            openLists[app.kind] = st.running && st.hasPresentation ? st.open : []
+            showingIn[app.kind] = st.showing
+        }
+        if app !== pdf, let sel = selectedFullName, st.running, !st.open.isEmpty, !st.open.contains(where: { $0.fullName == sel }) {
+            Log.write("Selected presentation was closed; following the slide show again")
             selectedFullName = nil
+            autoFollow = true
         }
         if !st.hasPresentation {
             if !deckID.isEmpty || !notes.isEmpty {
@@ -209,6 +229,7 @@ final class Hub {
         }
         overlay.update(showing: st.showing, black: st.black, bounds: st.showBounds, slide: st.index)
         recorder.followShow(st.showing ? st.showBounds : nil)
+        if autoFollow, !st.showing { DispatchQueue.main.async { self.followIfNeeded() } }
         if recorder.isActive { markChapter() }
         if st != old { bump() }
     }
@@ -470,14 +491,17 @@ final class Hub {
     private func use(_ id: String) -> Bool {
         if id == "auto" {
             selectedFullName = nil
-            switchApp(ppt)
-            Log.write("Presentation: follow PowerPoint")
+            autoFollow = true
+            if app === pdf { switchApp(ppt) }
+            followIfNeeded()
+            Log.write("Presentation: automatic (follow the slide show)")
         } else if let path = ([pdf.url?.path].compactMap { $0 } + PDFShow.recents).first(where: { Self.presentationID(PDFShow.prefix + $0) == id }) {
             return presentPDF(URL(fileURLWithPath: path))
-        } else if let p = pptOpen.first(where: { Self.presentationID($0.fullName) == id }) {
+        } else if let (a, p) = scriptedApps.lazy.compactMap({ a in (self.openLists[a.kind] ?? []).first(where: { Self.presentationID($0.fullName) == id }).map { (a, $0) } }).first {
             selectedFullName = p.fullName
-            switchApp(ppt)
-            Log.write("Presentation selected: \(p.name)")
+            autoFollow = false
+            switchApp(a)
+            Log.write("Presentation selected: \(p.name) (\(a.kind == "keynote" ? "Keynote" : "PowerPoint"))")
         } else {
             return false
         }
@@ -492,15 +516,34 @@ final class Hub {
         if pdf.url?.path != url.path || !pdf.isRunning {
             guard pdf.open(url) else { return false }
         }
+        autoFollow = false
+        selectedFullName = nil
         switchApp(pdf)
         bump()
         poll()
         return true
     }
 
+    /// Automatic mode: switch to PowerPoint or Keynote when a slide show runs there (or when the current app has nothing open).
+    private func followIfNeeded() {
+        guard autoFollow, app !== pdf else { return }
+        if state.showing { return }
+        if let other = scriptedApps.first(where: { $0 !== app && showingIn[$0.kind] == true }) {
+            Log.write("Slide show in \(other.kind == "keynote" ? "Keynote" : "PowerPoint"): following it")
+            switchApp(other)
+            poll()
+        } else if !state.hasPresentation, let other = scriptedApps.first(where: { $0 !== app && !(openLists[$0.kind] ?? []).isEmpty }) {
+            switchApp(other)
+            poll()
+        }
+    }
+
     func closePDF() {
         pdf.close()
-        if app === pdf { switchApp(ppt) }
+        if app === pdf {
+            autoFollow = true
+            switchApp(ppt)
+        }
         bump()
         poll()
     }
@@ -509,7 +552,7 @@ final class Hub {
         guard a !== app else { return }
         if app === pdf { pdf.go("end") }
         app = a
-        Log.write("Controlling: \(a.kind == "pdf" ? "PDF" : "PowerPoint")")
+        Log.write("Controlling: \(["pdf": "PDF", "keynote": "Keynote"][a.kind] ?? "PowerPoint")")
         mediaSlide = -1
         media = []
         mediaStatus = [:]
@@ -616,8 +659,12 @@ final class Hub {
     /// PowerPoint's open presentations, the PDF being shown, and recently shown PDFs.
     func presentationList() -> [[String: Any]] {
         let current = state.fullName
-        var list: [[String: Any]] = (app === ppt ? state.open : pptOpen).map {
-            ["id": Self.presentationID($0.fullName), "name": $0.name, "current": app === ppt && $0.fullName == current, "sub": "PowerPoint"]
+        var list: [[String: Any]] = []
+        for a in scriptedApps {
+            for p in openLists[a.kind] ?? [] {
+                list.append(["id": Self.presentationID(p.fullName), "name": p.name, "current": app === a && p.fullName == current,
+                             "sub": a.kind == "keynote" ? "Keynote" : "PowerPoint"])
+            }
         }
         if let u = pdf.url {
             list.append(["id": Self.presentationID(pdf.fullName), "name": u.lastPathComponent, "current": app === pdf, "sub": "PDF"])
@@ -660,7 +707,7 @@ final class Hub {
             "inkpdf": inkPDFState(),
             "skey": sounds.listKey,
             "svol": sounds.volume,
-            "auto": selectedFullName == nil && app === ppt,
+            "auto": autoFollow,
             "app": app.kind,
             "pcount": presentationList().count,
         ]

@@ -13,9 +13,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.13</string>
+	<string>1.14</string>
 	<key>CFBundleVersion</key>
-	<string>27</string>
+	<string>28</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
@@ -25,7 +25,7 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>PPT Remote uses Bluetooth so your iPad can control PowerPoint without Wi-Fi.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>PPT Remote controls Microsoft PowerPoint to change slides and read speaker notes.</string>
+	<string>PPT Remote controls Microsoft PowerPoint and Keynote to change slides and read speaker notes.</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
