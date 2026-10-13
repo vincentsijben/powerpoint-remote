@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.10';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -557,6 +557,10 @@ const App = {
     if (s.rec && prev && prev.rec && prev.rec.st !== s.rec.st) {
       Activity.log(`Recording: ${s.rec.st}${s.rec.st === 'off' && s.rec.file ? ` (saved "${s.rec.file}")` : ''}`);
       if (s.rec.st === 'off' && s.rec.file && prev.rec.st === 'saving') toast(`Recording saved on the Mac: ${s.rec.file}`);
+    }
+    if (s.inkpdf && s.inkpdf.last && prev && prev.inkpdf && prev.inkpdf.last !== s.inkpdf.last) {
+      toast(`Drawings saved on the Mac: ${s.inkpdf.last}`);
+      Activity.log(`Drawings saved as PDF: ${s.inkpdf.last}`);
     }
     if (s.rec && s.rec.err && prev && (!prev.rec || prev.rec.err !== s.rec.err)) toast(s.rec.err);
     const newDeck = s.deck !== this.deck;
@@ -1910,6 +1914,17 @@ const Rec = {
     if (r.err) bits.push(`⚠︎ ${r.err}`);
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
     if (r.st === 'off' && r.file && r.mix) bits.push(r.mix);
+    const ink = (App.st && App.st.inkpdf) || null;
+    for (const id of ['inkAuto', 'inkPages', 'inkSave']) $(id).disabled = !ink;
+    if (ink) {
+      $('inkAuto').checked = !!ink.auto;
+      if (document.activeElement !== $('inkPages')) $('inkPages').value = ink.pages || 'all';
+      $('inkSave').disabled = !ink.can || !!ink.busy;
+      $('inkSave').textContent = ink.busy ? 'Saving…' : '⤓ Save drawings as PDF now';
+      $('inkInfo').textContent = ink.last ? `Last saved: ${ink.last}` : ink.can ? '' : 'Nothing drawn yet in this slide show.';
+    } else {
+      $('inkInfo').textContent = 'Update the Mac helper to save drawings as a PDF.';
+    }
     $('recInfo').textContent = bits.join('\n');
   },
 
@@ -1924,6 +1939,9 @@ const Rec = {
     $('recStart').addEventListener('click', () => { buzz(20); App.send('rec start'); });
     $('recScreen').addEventListener('change', (e) => App.send(`rec screen ${e.target.value}`));
     $('recSaveNow').addEventListener('click', () => App.send('rec savenow'));
+    $('inkAuto').addEventListener('change', (e) => App.send(`ink auto ${e.target.checked ? 'on' : 'off'}`));
+    $('inkPages').addEventListener('change', (e) => App.send(`ink pages ${e.target.value}`));
+    $('inkSave').addEventListener('click', () => { buzz(15); App.send('ink save'); });
     $('micToggle').addEventListener('change', (e) => RemoteMic.setEnabled(e.target.checked));
     // Takes effect for the next piece (after a pause or the next recording).
     $('micClean').addEventListener('change', (e) => store.set('micClean', e.target.checked));

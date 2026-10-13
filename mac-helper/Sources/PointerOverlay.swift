@@ -36,8 +36,24 @@ final class PointerOverlay {
     }
 
     /// Called whenever the state is polled.
+    /// Called when a slide show with drawings ends, with all its drawings (page -1 = whiteboard).
+    var onShowEnded: (([Int: [Stroke]]) -> Void)?
+
+    /// All drawings of this slide show, including the line being drawn.
+    func inkPages() -> [Int: [Stroke]] {
+        var all = strokesBySlide
+        if let c = view.current, !c.points.isEmpty { all[page, default: []].append(c) }
+        return all.filter { !$0.value.isEmpty }
+    }
+
+    var hasAnyInk: Bool { !inkPages().isEmpty }
+
     func update(showing: Bool, black: Bool, bounds: CGRect, slide newSlide: Int) {
         guard showing, bounds.width > 10, bounds.height > 10 else {
+            if !showing {
+                let ink = inkPages()
+                if !ink.isEmpty { onShowEnded?(ink) }
+            }
             if window != nil { hide() }
             if !showing {
                 strokesBySlide.removeAll()
@@ -342,11 +358,40 @@ final class OverlayView: NSView {
     }
 
     private func draw(stroke s: PointerOverlay.Stroke, width: CGFloat) {
+        InkPainter.draw(s, width: width, minHead: 14, point: point)
+    }
+
+    /// Dark veil over the whole screen with a soft-edged hole: a "spyglass" on one part of the slide.
+    private func drawSpotlight(at c: CGPoint, radius: CGFloat) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let shade = CGColor(gray: 0, alpha: 0.72)
+        let outer = radius * 1.08
+        let veil = CGMutablePath()
+        veil.addRect(bounds)
+        veil.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
+        ctx.addPath(veil)
+        ctx.setFillColor(shade)
+        ctx.fillPath(using: .evenOdd)
+        // Soft edge: fade from clear to the veil colour around the rim.
+        guard let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
+                                    colors: [CGColor(gray: 0, alpha: 0), shade] as CFArray, locations: [0, 1]) else { return }
+        ctx.saveGState()
+        ctx.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
+        ctx.clip()
+        ctx.drawRadialGradient(grad, startCenter: c, startRadius: radius * 0.92, endCenter: c, endRadius: outer, options: [])
+        ctx.restoreGState()
+    }
+}
+
+/// Draws pen strokes and shapes; used for the projector overlay and for the PDF with your drawings.
+/// Needs a current NSGraphicsContext. `point` maps slide coordinates (0…1, top-left origin) to the context.
+enum InkPainter {
+    static func draw(_ s: PointerOverlay.Stroke, width: CGFloat, minHead: CGFloat, point: (CGPoint) -> CGPoint) {
         guard let first = s.points.first else { return }
         s.color.setStroke()
         s.color.setFill()
         if s.kind != "pen", s.points.count >= 2 {
-            drawShape(s, width: width)
+            drawShape(s, width: width, minHead: minHead, point: point)
             return
         }
         if s.points.count == 1 {
@@ -371,28 +416,7 @@ final class OverlayView: NSView {
         path.stroke()
     }
 
-    /// Dark veil over the whole screen with a soft-edged hole: a "spyglass" on one part of the slide.
-    private func drawSpotlight(at c: CGPoint, radius: CGFloat) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let shade = CGColor(gray: 0, alpha: 0.72)
-        let outer = radius * 1.08
-        let veil = CGMutablePath()
-        veil.addRect(bounds)
-        veil.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
-        ctx.addPath(veil)
-        ctx.setFillColor(shade)
-        ctx.fillPath(using: .evenOdd)
-        // Soft edge: fade from clear to the veil colour around the rim.
-        guard let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
-                                    colors: [CGColor(gray: 0, alpha: 0), shade] as CFArray, locations: [0, 1]) else { return }
-        ctx.saveGState()
-        ctx.addEllipse(in: CGRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
-        ctx.clip()
-        ctx.drawRadialGradient(grad, startCenter: c, startRadius: radius * 0.92, endCenter: c, endRadius: outer, options: [])
-        ctx.restoreGState()
-    }
-
-    private func drawShape(_ s: PointerOverlay.Stroke, width: CGFloat) {
+    private static func drawShape(_ s: PointerOverlay.Stroke, width: CGFloat, minHead: CGFloat, point: (CGPoint) -> CGPoint) {
         let a = point(s.points[0])
         let b = point(s.points[1])
         let path = NSBezierPath()
@@ -409,7 +433,7 @@ final class OverlayView: NSView {
             path.line(to: b)
             if s.kind == "arrow", hypot(b.x - a.x, b.y - a.y) > 1 {
                 let angle = atan2(b.y - a.y, b.x - a.x)
-                let head = max(width * 4, 14)
+                let head = max(width * 4, minHead)
                 for side in [-1.0, 1.0] {
                     let ang = angle + .pi - side * .pi / 7
                     path.move(to: b)

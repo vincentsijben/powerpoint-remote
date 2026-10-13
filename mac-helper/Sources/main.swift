@@ -120,6 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .saving:
             addInfo(menu, "Saving recording… \(Int(rec.savingProgress * 100))%")
         }
+        let ink = NSMenuItem(title: "Save Drawings as PDF", action: hub.canSaveInk ? #selector(saveDrawings) : nil, keyEquivalent: "")
+        ink.target = self
+        ink.isEnabled = hub.canSaveInk
+        menu.addItem(ink)
         addAction(menu, "Open Recordings Folder", #selector(openRecordings))
         addAction(menu, "Choose Recordings Folder…", #selector(chooseRecordings))
         menu.addItem(.separator())
@@ -183,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func reload() { hub.reloadDeck() }
 
     @objc private func startRecording() { hub.handle(command: "rec start") }
+    @objc private func saveDrawings() { hub.saveInkPDF() }
     @objc private func pauseRecording() { hub.handle(command: hub.recorder.phase == .paused ? "rec resume" : "rec pause") }
     @objc private func stopRecording() { hub.handle(command: "rec stop") }
 

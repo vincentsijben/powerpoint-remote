@@ -113,6 +113,58 @@ final class SlideImages {
         }
     }
 
+    /// Writes a PDF with the slides and your drawings on top (the slides stay sharp, text stays selectable).
+    /// Page -1 in `ink` is the whiteboard; it comes last. Calls back on the main queue with the number of pages.
+    func exportAnnotated(ink: [Int: [PointerOverlay.Stroke]], slides: Int, onlyDrawn: Bool, title: String,
+                         to url: URL, completion: @escaping (Int) -> Void) {
+        queue.async {
+            let first = self.document?.page(at: 0)?.bounds(for: .mediaBox).size ?? CGSize(width: 960, height: 540)
+            var box = CGRect(origin: .zero, size: first)
+            let info = [kCGPDFContextTitle: title, kCGPDFContextCreator: "PPT Remote"] as CFDictionary
+            guard let ctx = CGContext(url as CFURL, mediaBox: &box, info) else {
+                DispatchQueue.main.async { completion(0) }
+                return
+            }
+            var pages = 0
+            func addPage(_ pdfPage: PDFPage?, _ strokes: [PointerOverlay.Stroke]) {
+                let b = pdfPage?.bounds(for: .mediaBox) ?? CGRect(origin: .zero, size: first)
+                var pageBox = CGRect(origin: .zero, size: b.size)
+                ctx.beginPage(mediaBox: &pageBox)
+                if let pdfPage {
+                    ctx.saveGState()
+                    ctx.translateBy(x: -b.minX, y: -b.minY)
+                    pdfPage.draw(with: .mediaBox, to: ctx)
+                    ctx.restoreGState()
+                } else {
+                    ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+                    ctx.fill(pageBox)
+                }
+                if !strokes.isEmpty {
+                    let w = b.width, h = b.height
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                    for s in strokes {
+                        InkPainter.draw(s, width: h * 0.007, minHead: h * 0.013) { CGPoint(x: $0.x * w, y: (1 - $0.y) * h) }
+                    }
+                    NSGraphicsContext.restoreGraphicsState()
+                }
+                ctx.endPage()
+                pages += 1
+            }
+            for slide in 1...max(1, slides) {
+                let strokes = ink[slide] ?? []
+                if onlyDrawn, strokes.isEmpty { continue }
+                let page = self.pageForSlide[slide].flatMap { self.document?.page(at: $0) }
+                if page == nil, strokes.isEmpty { continue } // hidden slide that wasn't exported
+                addPage(page, strokes)
+            }
+            if let wb = ink[-1], !wb.isEmpty { addPage(nil, wb) }
+            ctx.closePDF()
+            if pages == 0 { try? FileManager.default.removeItem(at: url) }
+            DispatchQueue.main.async { completion(pages) }
+        }
+    }
+
     // MARK: - Private (on queue)
 
     private func mapPages(doc: PDFDocument, hidden: [Bool]) {

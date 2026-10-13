@@ -36,6 +36,26 @@ final class Hub {
     let sounds = SoundBoard()
     let recorder = LectureRecorder()
 
+    /// Drawings of the last slide show, kept so they can still be saved as a PDF after the show ended.
+    private var savedInk: [Int: [PointerOverlay.Stroke]] = [:]
+    private var savedInkDeck = ""
+    private(set) var lastInkPDF: String?
+    private var savingInk = false
+    var inkAutoSave: Bool {
+        get { UserDefaults.standard.object(forKey: "inkAutoSave") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "inkAutoSave") }
+    }
+    var inkOnlyDrawn: Bool {
+        get { UserDefaults.standard.bool(forKey: "inkOnlyDrawn") }
+        set { UserDefaults.standard.set(newValue, forKey: "inkOnlyDrawn") }
+    }
+    /// Drawings that can be saved: those of the running show, otherwise those of the last show of this presentation.
+    private var inkToSave: [Int: [PointerOverlay.Stroke]] {
+        let live = overlay.inkPages()
+        if !live.isEmpty { return live }
+        return savedInkDeck == deckID ? savedInk : [:]
+    }
+
     private(set) var state = PPTState()
     private(set) var deckID = ""
     private(set) var notes: [String] = []
@@ -108,6 +128,13 @@ final class Hub {
         sounds.onChange = { [weak self] in self?.bump() }
         sounds.start()
         recorder.onChange = { [weak self] in self?.bump() }
+        overlay.onShowEnded = { [weak self] ink in
+            guard let self else { return }
+            self.savedInk = ink
+            self.savedInkDeck = self.deckID
+            if self.inkAutoSave { self.saveInkPDF() }
+            self.bump()
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             let interval: TimeInterval = self.hasClients() ? 0.35 : 2.0
@@ -351,6 +378,49 @@ final class Hub {
         return true
     }
 
+    // MARK: - Drawings as PDF
+
+    func inkPDFState() -> [String: Any] {
+        var o: [String: Any] = ["auto": inkAutoSave, "pages": inkOnlyDrawn ? "drawn" : "all", "can": !inkToSave.isEmpty && images.isLoaded]
+        if let f = lastInkPDF { o["last"] = f }
+        if savingInk { o["busy"] = true }
+        return o
+    }
+
+    var canSaveInk: Bool { !inkToSave.isEmpty && images.isLoaded && !savingInk }
+
+    /// Saves the slides with your drawings (and the whiteboard) as a PDF next to the recordings.
+    func saveInkPDF() {
+        let ink = inkToSave
+        guard !ink.isEmpty, images.isLoaded, !savingInk else { return }
+        savingInk = true
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH.mm"
+        var name = (deckName as NSString).deletingPathExtension
+        name = name.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>")).joined(separator: "-")
+        let folder = LectureRecorder.folder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var url = folder.appendingPathComponent("Drawings \(f.string(from: Date())) – \(name).pdf")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = folder.appendingPathComponent("Drawings \(f.string(from: Date())) – \(name) (\(n)).pdf")
+            n += 1
+        }
+        let drawn = ink.keys.filter { $0 > 0 }.count
+        images.exportAnnotated(ink: ink, slides: state.count, onlyDrawn: inkOnlyDrawn, title: "\(name) – drawings", to: url) { [weak self] pages in
+            guard let self else { return }
+            self.savingInk = false
+            if pages > 0 {
+                self.lastInkPDF = url.lastPathComponent
+                Log.write("Drawings saved: \(url.path) (\(pages) pages, drawings on \(drawn) slide(s)\(ink[-1] != nil ? " + whiteboard" : ""))")
+            } else {
+                Log.write("Saving the drawings failed")
+            }
+            self.bump()
+        }
+        bump()
+    }
+
     /// "rec start|pause|resume|stop": records the projector screen, the Mac's sound and the microphone.
     private func record(_ what: String) -> Bool {
         switch what {
@@ -445,7 +515,12 @@ final class Hub {
             overlay.penUp()
             if overlay.hasInkOnSlide != had { bump() }
         case "ink":
-            overlay.clearInk()
+            switch rest {
+            case "save": saveInkPDF()
+            case "auto on", "auto off": inkAutoSave = rest == "auto on"
+            case "pages all", "pages drawn": inkOnlyDrawn = rest == "pages drawn"
+            default: overlay.clearInk()
+            }
             bump()
         default:
             return false
@@ -508,6 +583,7 @@ final class Hub {
             "wb": overlay.whiteboard,
             "zoomok": LiveZoomCapture.hasPermission,
             "rec": recorder.stateObject(),
+            "inkpdf": inkPDFState(),
             "skey": sounds.listKey,
             "svol": sounds.volume,
             "auto": selectedFullName == nil,

@@ -21,7 +21,7 @@
       </button>
       <button id="deckBtn" class="deck" title="Choose presentation"><span id="deckName"></span><span id="deckCaret" class="caret hidden">▾</span></button>
       <div id="slideNum" class="slidenum">–</div>
-      <button id="recBtn" class="chip recchip hidden" title="Record lecture" aria-label="Record lecture"><span class="recdot"></span><span id="recLabel" class="mono"></span></button>
+      <button id="recBtn" class="chip recchip hidden" title="Record lecture, save drawings" aria-label="Record lecture, save drawings"><span class="recdot"></span><span id="recLabel" class="mono"></span></button>
       <button id="timer" class="chip mono" title="Tap: start/pause · Hold: reset">00:00</button>
       <div id="clock" class="mono clock"></div>
       <button id="settingsBtn" class="iconbtn" title="Settings" aria-label="Settings">⚙︎</button>
@@ -151,7 +151,7 @@
   <!-- Soundboard -->
   <div id="recView" class="overlay hidden">
     <div class="panel">
-      <div class="panelhead"><h2>Record lecture</h2><button id="recClose" class="iconbtn">✕</button></div>
+      <div class="panelhead"><h2>Record &amp; save</h2><button id="recClose" class="iconbtn">✕</button></div>
       <p class="sub">Records what's on the projector (slides with your drawings, or any app you show), all sound the Mac plays, and the MacBook microphone, into one video on the Mac.</p>
       <div id="recStatus" class="recstatus">Not recording</div>
       <div class="row"><span>Screen</span><select id="recScreen"></select></div>
@@ -171,6 +171,12 @@
           <button id="micDelete" class="linkbtn hidden">Delete stored microphone sound</button>
         </div>
       </div>
+      <h3>Drawings</h3>
+      <p class="hint">A PDF with all slides and your pen, shapes and whiteboard on top, saved on the Mac next to the recordings.</p>
+      <div class="row"><label for="inkAuto">Save automatically when the slide show ends</label><input id="inkAuto" type="checkbox"></div>
+      <div class="row"><span>Pages</span><select id="inkPages"><option value="all">All slides</option><option value="drawn">Only slides with drawings</option></select></div>
+      <button id="inkSave" class="big">⤓ Save drawings as PDF now</button>
+      <p id="inkInfo" class="hint"></p>
       <p class="hint">Tip: turn on <b>Do Not Disturb</b> on the Mac, so pop-ups don't end up in the video. Recordings: Mac menu bar › PPT Remote › <i>Open Recordings Folder</i>.</p>
     </div>
   </div>
