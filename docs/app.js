@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.7.1';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1859,10 +1859,21 @@ const Rec = {
     $('recStart').classList.toggle('hidden', r.st !== 'off');
     $('recRunning').classList.toggle('hidden', r.st !== 'rec' && r.st !== 'paused');
     $('recPause').textContent = r.st === 'paused' ? '⏺ Resume' : '⏸ Pause';
+    const sel = $('recScreen');
+    const screens = r.screens || [];
+    const key = JSON.stringify([screens, r.screen]);
+    if (sel.dataset.key !== key && document.activeElement !== sel) {
+      sel.dataset.key = key;
+      sel.innerHTML = '';
+      sel.add(new Option('Automatic (follows PowerPoint)', 'auto'));
+      for (const sc of screens) sel.add(new Option(sc.name, sc.id));
+      sel.value = r.screen || 'auto';
+    }
+    sel.parentElement.classList.toggle('hidden', !r.screens || screens.length < 2);
     if (this.stopArmed && Date.now() > this.stopArmed) this.stopArmed = 0;
     $('recStop').textContent = this.stopArmed ? 'Tap again to stop' : '■ Stop & save';
     const bits = [];
-    if (r.st !== 'off' && r.disp) bits.push(`Screen: ${r.disp}${r.mic ? ' · with microphone' : ' · no microphone'}`);
+    if (r.st !== 'off' && r.disp) bits.push(`Recording: ${r.disp}${r.mic ? ' · with microphone' : ' · no microphone'}`);
     if (r.err) bits.push(`⚠︎ ${r.err}`);
     if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
     $('recInfo').textContent = bits.join('\n');
@@ -1877,6 +1888,7 @@ const Rec = {
     $('recBtn').addEventListener('click', () => this.open());
     $('recClose').addEventListener('click', () => $('recView').classList.add('hidden'));
     $('recStart').addEventListener('click', () => { buzz(20); App.send('rec start'); });
+    $('recScreen').addEventListener('change', (e) => App.send(`rec screen ${e.target.value}`));
     $('recPause').addEventListener('click', () => {
       const r = this.info();
       if (r) App.send(r.st === 'paused' ? 'rec resume' : 'rec pause');

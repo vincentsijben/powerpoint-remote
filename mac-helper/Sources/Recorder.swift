@@ -21,6 +21,16 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Called on the main thread whenever something the remotes show changes.
     var onChange: (() -> Void)?
 
+    /// Screen to record: "auto" (follows PowerPoint) or a display ID.
+    static var screenChoice: String {
+        get { UserDefaults.standard.string(forKey: "recordScreen") ?? "auto" }
+        set { UserDefaults.standard.set(newValue, forKey: "recordScreen") }
+    }
+
+    private(set) var displayID: CGDirectDisplayID = 0
+    private var showBounds: CGRect?
+    private var switching = false
+
     static var folder: URL {
         get {
             if let p = UserDefaults.standard.string(forKey: "recordingsFolder") { return URL(fileURLWithPath: p) }
@@ -132,7 +142,12 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         if phase == .saving { o["p"] = Int(savingProgress * 100) }
         if let f = lastFile { o["file"] = f.lastPathComponent }
         if let e = lastError { o["err"] = e }
-        if !displayName.isEmpty { o["disp"] = displayName }
+        if !displayName.isEmpty, phase != .off { o["disp"] = displayName }
+        o["screen"] = Self.screenChoice
+        o["screens"] = NSScreen.screens.compactMap { sc -> [String: Any]? in
+            guard let id = sc.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return nil }
+            return ["id": String(id), "name": sc.localizedName]
+        }
         return o
     }
 
@@ -147,21 +162,90 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     self.fail("Can't record the screen: \(error?.localizedDescription ?? "no display")")
                     return
                 }
-                // The projector: the screen with the slide show, otherwise an external screen, otherwise the Mac's own.
-                let displays = content.displays
-                var display = displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? displays[0]
-                if let b = showBounds, b.width > 10, let d = displays.first(where: { $0.frame.contains(CGPoint(x: b.midX, y: b.midY)) }) {
-                    display = d
-                } else if let ext = displays.first(where: { $0.displayID != CGMainDisplayID() }) {
-                    display = ext
-                }
+                self.showBounds = showBounds
+                let id = self.wantedDisplay(among: content.displays.map(\.displayID))
+                let display = content.displays.first(where: { $0.displayID == id }) ?? content.displays[0]
                 self.begin(display: display, mic: mic)
+            }
+        }
+    }
+
+    /// The screen to record. Automatic: where the slide show runs, otherwise where PowerPoint's window is,
+    /// otherwise an external screen (projector), otherwise the Mac's own.
+    private func wantedDisplay(among ids: [CGDirectDisplayID]) -> CGDirectDisplayID {
+        if let id = UInt32(Self.screenChoice), ids.contains(id) { return id }
+        if let b = showBounds, b.width > 10, let id = Self.display(at: CGPoint(x: b.midX, y: b.midY)), ids.contains(id) { return id }
+        if let w = Self.powerPointWindow(), let id = Self.display(at: CGPoint(x: w.midX, y: w.midY)), ids.contains(id) { return id }
+        if let ext = ids.first(where: { $0 != CGMainDisplayID() }) { return ext }
+        return ids.contains(CGMainDisplayID()) ? CGMainDisplayID() : (ids.first ?? CGMainDisplayID())
+    }
+
+    private static func display(at p: CGPoint) -> CGDirectDisplayID? {
+        var id: CGDirectDisplayID = 0
+        var count: UInt32 = 0
+        guard CGGetDisplaysWithPoint(p, 1, &id, &count) == .success, count > 0 else { return nil }
+        return id
+    }
+
+    /// Bounds (top-left origin) of PowerPoint's front-most window.
+    private static func powerPointWindow() -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        for w in list where (w[kCGWindowOwnerName as String] as? String) == "Microsoft PowerPoint" && (w[kCGWindowLayer as String] as? Int) == 0 {
+            if let d = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: d), r.width > 200, r.height > 150 { return r }
+        }
+        return nil
+    }
+
+    private static func screenName(_ id: CGDirectDisplayID) -> String {
+        NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == id }?.localizedName ?? "Display"
+    }
+
+    /// Picks the screen from the remote ("auto" or a display ID); switches right away while recording.
+    func chooseScreen(_ choice: String) {
+        Self.screenChoice = choice
+        Log.write("Recording screen: \(choice == "auto" ? "automatic" : Self.screenName(UInt32(choice) ?? 0))")
+        onChange?()
+        retarget()
+    }
+
+    /// Called on every PowerPoint poll: in automatic mode the recording follows the slide show to its screen.
+    func followShow(_ bounds: CGRect?) {
+        let old = showBounds
+        showBounds = bounds
+        guard Self.screenChoice == "auto", bounds != nil, old != bounds else { return }
+        retarget()
+    }
+
+    private func retarget() {
+        guard phase == .rec || phase == .paused, stream != nil, !switching else { return }
+        let ids = NSScreen.screens.compactMap { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID }
+        let want = wantedDisplay(among: ids)
+        guard want != displayID else { return }
+        switching = true
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
+            DispatchQueue.main.async {
+                defer { self.switching = false }
+                guard let stream = self.stream, let display = content?.displays.first(where: { $0.displayID == want }) else { return }
+                let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                stream.updateContentFilter(filter) { error in
+                    DispatchQueue.main.async {
+                        if let error {
+                            Log.write("Could not switch the recorded screen: \(error.localizedDescription)")
+                            return
+                        }
+                        self.displayID = want
+                        self.displayName = Self.screenName(want)
+                        Log.write("Recording now: \(self.displayName)")
+                        self.onChange?()
+                    }
+                }
             }
         }
     }
 
     private func begin(display: SCDisplay, mic: Bool) {
         let screen = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID }
+        displayID = display.displayID
         displayName = screen?.localizedName ?? "Display"
         let scale = screen?.backingScaleFactor ?? 1
         let pw = CGFloat(display.width) * scale
@@ -202,6 +286,10 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
             config.showsCursor = true
+            if #available(macOS 14.0, *) {
+                // Switching to a screen with another shape later: letterbox instead of stretching.
+                config.preservesAspectRatio = true
+            }
             config.capturesAudio = true
             config.excludesCurrentProcessAudio = false // the soundboard plays in this app
             config.sampleRate = 48000

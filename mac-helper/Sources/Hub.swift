@@ -169,6 +169,7 @@ final class Hub {
             if st.showing { refreshMedia() }
         }
         overlay.update(showing: st.showing, black: st.black, bounds: st.showBounds, slide: st.index)
+        recorder.followShow(st.showing ? st.showBounds : nil)
         if st != old { bump() }
     }
 
@@ -357,7 +358,9 @@ final class Hub {
         case "pause": recorder.pause()
         case "resume": recorder.resume()
         case "stop": recorder.stop()
-        default: return false
+        default:
+            guard what.hasPrefix("screen ") else { return false }
+            recorder.chooseScreen(String(what.dropFirst(7)))
         }
         return true
     }
