@@ -21,6 +21,7 @@
       </button>
       <button id="deckBtn" class="deck" title="Choose presentation"><span id="deckName"></span><span id="deckCaret" class="caret hidden">▾</span></button>
       <div id="slideNum" class="slidenum">–</div>
+      <button id="recBtn" class="chip recchip hidden" title="Record lecture" aria-label="Record lecture"><span class="recdot"></span><span id="recLabel" class="mono"></span></button>
       <button id="timer" class="chip mono" title="Tap: start/pause · Hold: reset">00:00</button>
       <div id="clock" class="mono clock"></div>
       <button id="settingsBtn" class="iconbtn" title="Settings" aria-label="Settings">⚙︎</button>
@@ -148,6 +149,21 @@
   </div>
 
   <!-- Soundboard -->
+  <div id="recView" class="overlay hidden">
+    <div class="panel">
+      <div class="panelhead"><h2>Record lecture</h2><button id="recClose" class="iconbtn">✕</button></div>
+      <p class="sub">Records what's on the projector (slides with your drawings, or any app you show), all sound the Mac plays, and the MacBook microphone, into one video on the Mac.</p>
+      <div id="recStatus" class="recstatus">Not recording</div>
+      <button id="recStart" class="big recstart">⏺ Start recording</button>
+      <div id="recRunning" class="row recrow hidden">
+        <button id="recPause" class="big">⏸ Pause</button>
+        <button id="recStop" class="big danger">■ Stop &amp; save</button>
+      </div>
+      <p id="recInfo" class="hint"></p>
+      <p class="hint">Tip: turn on <b>Do Not Disturb</b> on the Mac, so pop-ups don't end up in the video. Recordings: Mac menu bar › PPT Remote › <i>Open Recordings Folder</i>.</p>
+    </div>
+  </div>
+
   <div id="soundsView" class="overlay hidden">
     <div class="panel">
       <div class="panelhead"><h2>Sounds</h2><button id="soundsClose" class="iconbtn">✕</button></div>

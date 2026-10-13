@@ -29,16 +29,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ble.onStatusChange = { [weak self] in self?.updateIcon() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.updateIcon() }
         hub.start()
+        let previous = hub.recorder.onChange
+        hub.recorder.onChange = { [weak self] in
+            previous?()
+            self?.updateIcon()
+        }
         Log.write("PPT Remote started. PIN \(hub.pin). Direct slide jumps: \(PowerPoint.canJumpDirectly ? "on" : "off (needs Accessibility)")")
     }
 
+    private var lastRecPhase = ""
+
     private func updateIcon() {
         let connected = ble.connectedCount + http.connectedCount
-        guard connected != lastConnected else { return }
+        let recPhase = hub.recorder.phase.rawValue
+        guard connected != lastConnected || recPhase != lastRecPhase else { return }
         lastConnected = connected
-        let symbol = connected > 0 ? "dot.radiowaves.left.and.right" : "rectangle.on.rectangle"
+        lastRecPhase = recPhase
+        let recording = hub.recorder.phase == .rec || hub.recorder.phase == .paused
+        let symbol = recording ? (hub.recorder.phase == .paused ? "pause.circle" : "record.circle")
+            : connected > 0 ? "dot.radiowaves.left.and.right" : "rectangle.on.rectangle"
         let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "PPT Remote")
-        img?.isTemplate = true
+        img?.isTemplate = !recording || hub.recorder.phase == .paused
+        if recording, hub.recorder.phase == .rec {
+            statusItem.button?.contentTintColor = .systemRed
+        } else {
+            statusItem.button?.contentTintColor = nil
+        }
         statusItem.button?.image = img
         statusItem.button?.title = connected > 0 ? " \(connected)" : ""
         statusItem.button?.imagePosition = .imageLeading
@@ -92,6 +108,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(item)
             }
         }
+        menu.addItem(.separator())
+        let rec = hub.recorder
+        switch rec.phase {
+        case .off, .starting:
+            addAction(menu, rec.phase == .starting ? "Starting recording…" : "Start Recording", #selector(startRecording))
+        case .rec, .paused:
+            addInfo(menu, "\(rec.phase == .paused ? "⏸ Paused" : "⏺ Recording") \(LectureRecorder.clock(rec.elapsed)) — \(rec.displayName)", bold: true)
+            addAction(menu, rec.phase == .paused ? "Resume Recording" : "Pause Recording", #selector(pauseRecording))
+            addAction(menu, "Stop and Save Recording", #selector(stopRecording))
+        case .saving:
+            addInfo(menu, "Saving recording… \(Int(rec.savingProgress * 100))%")
+        }
+        addAction(menu, "Open Recordings Folder", #selector(openRecordings))
+        addAction(menu, "Choose Recordings Folder…", #selector(chooseRecordings))
         menu.addItem(.separator())
         addAction(menu, "Reload Slides from PowerPoint", #selector(reload))
         addAction(menu, "Open Sounds Folder…", #selector(openSounds))
@@ -151,6 +181,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func reload() { hub.reloadDeck() }
+
+    @objc private func startRecording() { hub.handle(command: "rec start") }
+    @objc private func pauseRecording() { hub.handle(command: hub.recorder.phase == .paused ? "rec resume" : "rec pause") }
+    @objc private func stopRecording() { hub.handle(command: "rec stop") }
+
+    @objc private func openRecordings() {
+        try? FileManager.default.createDirectory(at: LectureRecorder.folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(LectureRecorder.folder)
+    }
+
+    @objc private func chooseRecordings() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Use This Folder"
+        panel.message = "Where should lecture recordings be saved? (For example a OneDrive folder, to share them quickly.)"
+        panel.directoryURL = LectureRecorder.folder
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            LectureRecorder.folder = url
+            Log.write("Recordings folder: \(url.path)")
+        }
+    }
+
+    /// Don't lose a recording when quitting: save it first.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard hub.recorder.isActive else { return .terminateNow }
+        hub.recorder.stop { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
 
     @objc private func openSounds() {
         try? FileManager.default.createDirectory(at: SoundBoard.userFolder, withIntermediateDirectories: true)

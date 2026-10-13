@@ -34,6 +34,7 @@ final class Hub {
     let images = SlideImages()
     let overlay = PointerOverlay()
     let sounds = SoundBoard()
+    let recorder = LectureRecorder()
 
     private(set) var state = PPTState()
     private(set) var deckID = ""
@@ -106,6 +107,7 @@ final class Hub {
     func start() {
         sounds.onChange = { [weak self] in self?.bump() }
         sounds.start()
+        recorder.onChange = { [weak self] in self?.bump() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             let interval: TimeInterval = self.hasClients() ? 0.35 : 2.0
@@ -319,6 +321,8 @@ final class Hub {
             return pointer(cmd, rest)
         case "snd":
             return sound(rest)
+        case "rec":
+            return record(rest)
         case "reload":
             reloadDeck()
             return true
@@ -342,6 +346,18 @@ final class Hub {
             if let st { self.apply(st) }
             // Starting/ending a show takes a moment to settle; check again shortly.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.poll() }
+        }
+        return true
+    }
+
+    /// "rec start|pause|resume|stop": records the projector screen, the Mac's sound and the microphone.
+    private func record(_ what: String) -> Bool {
+        switch what {
+        case "start": recorder.start(showBounds: state.showing ? state.showBounds : nil, title: state.hasPresentation ? deckName : "")
+        case "pause": recorder.pause()
+        case "resume": recorder.resume()
+        case "stop": recorder.stop()
+        default: return false
         }
         return true
     }
@@ -487,6 +503,7 @@ final class Hub {
             "ink": overlay.hasInkOnSlide,
             "wb": overlay.whiteboard,
             "zoomok": LiveZoomCapture.hasPermission,
+            "rec": recorder.stateObject(),
             "skey": sounds.listKey,
             "svol": sounds.volume,
             "auto": selectedFullName == nil,

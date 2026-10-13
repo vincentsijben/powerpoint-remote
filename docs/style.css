@@ -66,6 +66,19 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 #timer { font-size: 18px; }
 #timer.running { border-color: var(--ok); color: var(--ok); }
 .clock { color: var(--muted); font-size: 18px; }
+.recchip { gap: 6px; padding: 8px 11px; }
+.recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+.recchip.rec { border-color: var(--bad); color: var(--bad); }
+.recchip.rec .recdot { background: var(--bad); animation: recpulse 1.4s ease-in-out infinite; }
+.recchip.paused { border-color: var(--warn); color: var(--warn); }
+.recchip.paused .recdot { background: var(--warn); border-radius: 2px; }
+.recchip.saving .recdot { background: var(--warn); }
+@keyframes recpulse { 50% { opacity: .25; } }
+.recstatus { font-size: 26px; font-weight: 700; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.recstatus.rec { color: var(--bad); }
+.recstatus.paused { color: var(--warn); }
+.recstart { width: 100%; color: #fff; background: var(--bad); border-color: var(--bad); }
+.recrow > .big { flex: 1; }
 .iconbtn {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   min-width: 44px; height: 44px; font-size: 20px;
@@ -396,3 +409,4 @@ body.bigslide .swatch { width: 26px; height: 26px; }
   body.bigslide #zoomBox > .plabel:first-child { display: none; }
   body.bigslide .pencolors .shape.wide { width: auto; }
 }
+#recInfo { white-space: pre-line; margin-top: 4px; }

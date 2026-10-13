@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -334,7 +334,7 @@ class HttpTransport {
 
 const Hub = {
   commands: new Set(['next', 'prev', 'first', 'last', 'goto', 'start', 'starthere', 'end', 'black', 'reload',
-    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd', 'sp', 'zm']),
+    'use', 'media', 'lz', 'pd', 'pm', 'pu', 'ink', 'sd', 'sm', 'wb', 'snd', 'sp', 'zm', 'rec']),
 };
 
 // ---------------------------------------------------------------------------
@@ -534,6 +534,12 @@ const App = {
 
   applyState(s) {
     const prev = this.st;
+    if (s.rec) this.recAt = Date.now();
+    if (s.rec && prev && prev.rec && prev.rec.st !== s.rec.st) {
+      Activity.log(`Recording: ${s.rec.st}${s.rec.st === 'off' && s.rec.file ? ` (saved "${s.rec.file}")` : ''}`);
+      if (s.rec.st === 'off' && s.rec.file && prev.rec.st === 'saving') toast(`Recording saved on the Mac: ${s.rec.file}`);
+    }
+    if (s.rec && s.rec.err && prev && (!prev.rec || prev.rec.err !== s.rec.err)) toast(s.rec.err);
     const newDeck = s.deck !== this.deck;
     if (newDeck) {
       this.resetDeck(s.deck);
@@ -821,6 +827,7 @@ const App = {
 
   render() {
     this.renderConn();
+    Rec.render();
     const s = this.st;
     $('deckName').textContent = s && s.name ? s.name : '';
     $('deckCaret').classList.toggle('hidden', !(s && s.pcount > 1));
@@ -1809,6 +1816,86 @@ function renderRichNotes(paras) {
 // Settings: storage and activity
 // ---------------------------------------------------------------------------
 
+/** Lecture recording on the Mac: chip in the top bar and the Record panel. */
+const Rec = {
+  stopArmed: 0,
+
+  info() {
+    const s = App.st;
+    return App.transport && s && s.rec ? s.rec : null;
+  },
+
+  /** Seconds recorded, counting on from the last state the Mac sent. */
+  seconds(r) {
+    return r.st === 'rec' ? r.t + Math.floor((Date.now() - (App.recAt || Date.now())) / 1000) : r.t;
+  },
+
+  clock(t) {
+    const h = Math.floor(t / 3600);
+    const m = Math.floor(t / 60) % 60;
+    const sec = String(t % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+  },
+
+  render() {
+    const r = this.info();
+    const chip = $('recBtn');
+    chip.classList.toggle('hidden', !r);
+    if (!r) return;
+    const t = this.clock(this.seconds(r));
+    chip.className = `chip recchip ${r.st}`;
+    $('recLabel').textContent = r.st === 'rec' || r.st === 'paused' ? t : r.st === 'saving' ? `${r.p || 0}%` : '';
+    chip.title = r.st === 'off' ? 'Record lecture' : `Recording: ${r.st}`;
+    if ($('recView').classList.contains('hidden')) return;
+    const status = $('recStatus');
+    status.className = `recstatus ${r.st}`;
+    status.textContent = {
+      off: 'Not recording',
+      starting: 'Starting…',
+      rec: `⏺ Recording ${t}`,
+      paused: `⏸ Paused at ${t}`,
+      saving: `Saving… ${r.p || 0}%`,
+    }[r.st] || r.st;
+    $('recStart').classList.toggle('hidden', r.st !== 'off');
+    $('recRunning').classList.toggle('hidden', r.st !== 'rec' && r.st !== 'paused');
+    $('recPause').textContent = r.st === 'paused' ? '⏺ Resume' : '⏸ Pause';
+    if (this.stopArmed && Date.now() > this.stopArmed) this.stopArmed = 0;
+    $('recStop').textContent = this.stopArmed ? 'Tap again to stop' : '■ Stop & save';
+    const bits = [];
+    if (r.st !== 'off' && r.disp) bits.push(`Screen: ${r.disp}${r.mic ? ' · with microphone' : ' · no microphone'}`);
+    if (r.err) bits.push(`⚠︎ ${r.err}`);
+    if (r.st === 'off' && r.file) bits.push(`Last recording: ${r.file}`);
+    $('recInfo').textContent = bits.join('\n');
+  },
+
+  open() {
+    $('recView').classList.remove('hidden');
+    this.render();
+  },
+
+  init() {
+    $('recBtn').addEventListener('click', () => this.open());
+    $('recClose').addEventListener('click', () => $('recView').classList.add('hidden'));
+    $('recStart').addEventListener('click', () => { buzz(20); App.send('rec start'); });
+    $('recPause').addEventListener('click', () => {
+      const r = this.info();
+      if (r) App.send(r.st === 'paused' ? 'rec resume' : 'rec pause');
+    });
+    // Two taps, so a recording isn't stopped by accident.
+    $('recStop').addEventListener('click', () => {
+      if (!this.stopArmed) {
+        this.stopArmed = Date.now() + 3000;
+        this.render();
+        return;
+      }
+      this.stopArmed = 0;
+      buzz(20);
+      App.send('rec stop');
+      this.render();
+    });
+  },
+};
+
 const Panels = {
   async renderStorage() {
     const el = $('storageInfo');
@@ -2233,11 +2320,13 @@ function init() {
   setInterval(() => {
     Timer.render();
     renderClock();
+    Rec.render();
     App.tickMedia();
     if (Panels.activityOpen) Panels.renderActivity(false);
   }, 500);
   window.addEventListener('resize', () => { App.renderSlides(); App.applyZoomView(); });
   App.applyBig();
+  Rec.init();
   $('currentImg').addEventListener('load', () => App.requestInk(true));
   Timer.render();
   renderClock();
