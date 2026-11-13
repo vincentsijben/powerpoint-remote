@@ -1,10 +1,10 @@
 // Caches the app so the page also opens without internet once it has been loaded before.
-const CACHE = 'pptremote-v22';
+const CACHE = 'pptremote-v23';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'remotemic.js', 'manifest.webmanifest', 'favicon.png', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'genart/made-by-genart-light.svg'];
 const NETWORK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((a) => new Request(a, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -15,6 +15,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Always asks the server whether a file changed (skipping the browser's own 10-minute cache).
 // Network first (so updates arrive right away and files never mix versions); the saved copy is
 // used when there is no internet or the network is too slow.
 self.addEventListener('fetch', (e) => {
@@ -22,7 +23,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/api/')) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const network = fetch(e.request).then((res) => {
+    const network = fetch(e.request, { cache: 'no-cache' }).then((res) => {
       if (res.ok) cache.put(e.request, res.clone());
       return res;
     });
