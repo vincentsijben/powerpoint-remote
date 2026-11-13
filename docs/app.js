@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.14.2';
+const APP_VERSION = '1.14.3';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -2193,6 +2193,7 @@ function init() {
   $('vibrateChk').closest('.row').classList.toggle('hidden', !navigator.vibrate);
   $('pageUrl').textContent = location.origin + location.pathname;
   $('versionInfo').textContent = `PPT Remote v${APP_VERSION}`;
+  $('connectVersion').textContent = `v${APP_VERSION}`;
 
   const bleOK = BleTransport.available();
   $('bleConnectBtn').classList.toggle('hidden', !bleOK);

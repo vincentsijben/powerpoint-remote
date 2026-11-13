@@ -1,5 +1,5 @@
 // Caches the app so the page also opens without internet once it has been loaded before.
-const CACHE = 'pptremote-v21';
+const CACHE = 'pptremote-v22';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'remotemic.js', 'manifest.webmanifest', 'favicon.png', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'genart/made-by-genart-light.svg'];
 const NETWORK_TIMEOUT_MS = 3000;
 

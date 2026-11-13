@@ -35,7 +35,7 @@ open "mac-helper/build/PPT Remote.app"
 
 ## The web app
 
-[docs/](docs/) is a static site (HTML, CSS, plain JavaScript, no build step) hosted on GitHub Pages. Web Bluetooth only works on `https://` pages, hence Pages. Every push to `main` updates the live app. `docs/sw.js` is a network-first service worker; bump its cache name when files change.
+[docs/](docs/) is a static site (HTML, CSS, plain JavaScript, no build step) hosted on GitHub Pages. Web Bluetooth only works on `https://` pages, hence Pages. Every push to `main` updates the live app. `docs/sw.js` is a network-first service worker; bump its cache name when files change. Also raise `APP_VERSION` in `docs/app.js` (and the version in `mac-helper/Info.plist`) with every change to the live app; the number is shown on the connect screen and at the bottom of Settings, so you can see which version a device has loaded.
 
 To host your own copy: push this repository to GitHub, then *Settings › Pages › Deploy from a branch*, branch `main`, folder **/docs**.
 
