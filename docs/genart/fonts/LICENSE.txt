@@ -1,0 +1,11 @@
+De lettertypes in deze map vallen onder de SIL Open Font License, versie 1.1.
+De volledige licentietekst: https://openfontlicense.org
+
+Outfit
+  Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)
+  Bestand: outfit-latin-wght-normal.woff2 (via @fontsource-variable/outfit)
+
+IBM Plex Mono
+  Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+  Bestanden: ibm-plex-mono-latin-400-normal.woff2, ibm-plex-mono-latin-500-normal.woff2
+  (via @fontsource/ibm-plex-mono)

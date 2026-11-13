@@ -1,67 +1,96 @@
 /*
- * GenArt brand tokens — voorstel v0.1
+ * GenArt brand tokens — v0.2
  *
- * Afgeleid uit wat er al bestond: de logokleur (#272F44) en het palet van
- * genart-invoice (paper, ink, rood, muted) plus IBM Plex Mono.
+ * Kleuren, lettertypes en vormen als CSS-variabelen. Alle namen beginnen met
+ * --ga- zodat ze nooit botsen met variabelen die een app zelf al gebruikt.
+ * Dit bestand inladen verandert op zichzelf niets aan een bestaande app.
  *
- * Alle variabelen beginnen met --ga- zodat ze nooit botsen met variabelen
- * die een app zelf al gebruikt (--ink, --card, --primary, ...). Dit bestand
- * inladen verandert op zichzelf dus niets aan een bestaande app.
+ * Apps gebruiken het donkere thema: <html data-theme="dark">.
+ * Het lichte thema (paper) is voor documenten en pagina's om te lezen.
+ *
+ * v0.2: dieper navy en feller oranjerood in het donkere thema, Outfit als
+ * lettertype, extra tokens voor ronde vormen (zie genart.css).
  */
 
 :root {
   /* Basiskleuren */
-  --ga-navy: #272f44;
+  --ga-navy: #272f44; /* de kleur van het logo */
   --ga-ink: #1b1d1f;
   --ga-paper: #f5f2eb;
   --ga-white: #ffffff;
   --ga-red: #d9502b;
+  --ga-orange: #ff5b35;
+  --ga-orange-2: #ff8f4d;
   --ga-stone: #6e6a62;
   --ga-sand: #d9d4c8;
 
-  /* Rollen (gebruik deze in apps) */
+  /* Rollen (gebruik deze in apps) — licht thema */
   --ga-bg: var(--ga-paper);
   --ga-surface: var(--ga-white);
+  --ga-surface-2: #ece8de;
   --ga-text: var(--ga-ink);
   --ga-text-muted: var(--ga-stone);
   --ga-brand: var(--ga-navy);
   --ga-on-brand: var(--ga-paper);
-  --ga-accent: var(--ga-red); /* knoppen, markeringen, grote tekst; niet voor lopende tekst */
+  --ga-accent: var(--ga-red); /* de belangrijkste actie per scherm; niet voor lopende tekst */
+  --ga-accent-2: #e8693f; /* tweede kleur van het accentverloop */
   --ga-on-accent: var(--ga-white);
+  --ga-accent-glow: rgba(217, 80, 43, 0.28);
   --ga-line: var(--ga-sand);
+  --ga-ok: #1f9d63;
+  --ga-dot: rgba(39, 47, 68, 0.1); /* stippenraster op de achtergrond */
+  --ga-glow-a: rgba(86, 110, 220, 0.08);
+  --ga-glow-b: rgba(255, 91, 53, 0.08);
 
   /* Typografie */
-  --ga-font-sans: "Aptos", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ga-font-sans: "Outfit", "Aptos", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ga-font-display: var(--ga-font-sans);
   --ga-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Vorm */
-  --ga-radius: 10px;
-  --ga-radius-sm: 6px;
+  /* Vorm: alles is rond */
+  --ga-radius-sm: 10px;
+  --ga-radius: 18px;
+  --ga-radius-lg: 22px;
+  --ga-radius-pill: 999px;
   --ga-space: 8px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ga-bg: #171b27;
-    --ga-surface: #20273a;
+    --ga-bg: #10152a;
+    --ga-surface: #181f38;
+    --ga-surface-2: #222b4a;
     --ga-text: #f5f2eb;
-    --ga-text-muted: #a8a398;
+    --ga-text-muted: #98a0ba;
     --ga-brand: #f5f2eb;
-    --ga-on-brand: #272f44;
-    --ga-accent: #ec6a45;
-    --ga-on-accent: #171b27;
-    --ga-line: #343c52;
+    --ga-on-brand: #10152a;
+    --ga-accent: var(--ga-orange);
+    --ga-accent-2: var(--ga-orange-2);
+    --ga-on-accent: #1a0c06;
+    --ga-accent-glow: rgba(255, 91, 53, 0.4);
+    --ga-line: rgba(255, 255, 255, 0.08);
+    --ga-ok: #3ddc97;
+    --ga-dot: rgba(255, 255, 255, 0.09);
+    --ga-glow-a: rgba(86, 110, 220, 0.2);
+    --ga-glow-b: rgba(255, 91, 53, 0.13);
   }
 }
 
 :root[data-theme="dark"] {
-  --ga-bg: #171b27;
-  --ga-surface: #20273a;
+  --ga-bg: #10152a;
+  --ga-surface: #181f38;
+  --ga-surface-2: #222b4a;
   --ga-text: #f5f2eb;
-  --ga-text-muted: #a8a398;
+  --ga-text-muted: #98a0ba;
   --ga-brand: #f5f2eb;
-  --ga-on-brand: #272f44;
-  --ga-accent: #ec6a45;
-  --ga-on-accent: #171b27;
-  --ga-line: #343c52;
+  --ga-on-brand: #10152a;
+  --ga-accent: var(--ga-orange);
+  --ga-accent-2: var(--ga-orange-2);
+  --ga-on-accent: #1a0c06;
+  --ga-accent-glow: rgba(255, 91, 53, 0.4);
+  --ga-line: rgba(255, 255, 255, 0.08);
+  --ga-ok: #3ddc97;
+  --ga-dot: rgba(255, 255, 255, 0.09);
+  --ga-glow-a: rgba(86, 110, 220, 0.2);
+  --ga-glow-b: rgba(255, 91, 53, 0.13);
 }

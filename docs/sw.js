@@ -1,6 +1,9 @@
 // Caches the app so the page also opens without internet once it has been loaded before.
-const CACHE = 'pptremote-v24';
-const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'remotemic.js', 'manifest.webmanifest', 'favicon.png', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'genart/made-by-genart-light.svg', 'genart/genart-wordmark-light.svg', 'genart/tokens.css'];
+const CACHE = 'pptremote-v25';
+const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'protocol.js', 'activity.js', 'storage.js', 'remotemic.js', 'manifest.webmanifest', 'favicon.png', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'genart-ui.js',
+  'genart/fonts.css', 'genart/tokens.css', 'genart/genart.css', 'genart/genart-dots.js',
+  'genart/fonts/outfit-latin-wght-normal.woff2', 'genart/fonts/ibm-plex-mono-latin-400-normal.woff2', 'genart/fonts/ibm-plex-mono-latin-500-normal.woff2',
+  'genart/logo/genart-wordmark-light.svg', 'genart/logo/made-by-genart-light.svg'];
 const NETWORK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', (e) => {

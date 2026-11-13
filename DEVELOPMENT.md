@@ -53,6 +53,8 @@ To host your own copy: push this repository to GitHub, then *Settings › Pages 
 | [docs/protocol.js](docs/protocol.js) | Bluetooth message framing (shared format with the Mac) |
 | [docs/storage.js](docs/storage.js) | Stored slides (IndexedDB) and image format detection |
 | [docs/activity.js](docs/activity.js) | Activity log and transfer statistics |
+| [docs/genart/](docs/genart/) | GenArt brand kit, copied from the GenArt hub (`brand/`): colour and shape tokens, components, fonts, the dot spiral, logos. Replace it as a whole; do not edit it here |
+| [docs/genart-ui.js](docs/genart-ui.js) | Look only: runs the dot spiral on the connect screen and draws the slide progress dots |
 | [docs/mictest.html](docs/mictest.html) | Stand-alone microphone test page |
 | [mac-helper/Sources/main.swift](mac-helper/Sources/main.swift) | Menu bar app and its menu |
 | [mac-helper/Sources/Hub.swift](mac-helper/Sources/Hub.swift) | Central model: which app is controlled, state, commands, deck loading |

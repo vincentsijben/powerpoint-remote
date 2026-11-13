@@ -1,0 +1,150 @@
+/*
+ * GenArt componenten — v0.2
+ *
+ * Bouwstenen voor de app-stijl. Vereist tokens.css (en fonts.css voor de
+ * lettertypes). Alle klassen beginnen met ga- en doen niets tot je ze
+ * gebruikt, dus dit bestand inladen verandert een bestaande app niet.
+ *
+ * Zie voorbeeld-app.html voor alle onderdelen in samenhang.
+ */
+
+/* Achtergrond van een app-scherm: twee zachte gloeden en een stippenraster. */
+.ga-app {
+  position: relative;
+  color: var(--ga-text);
+  font-family: var(--ga-font-sans);
+  background:
+    radial-gradient(900px 500px at 0% 0%, var(--ga-glow-a), transparent 70%),
+    radial-gradient(700px 400px at 100% 100%, var(--ga-glow-b), transparent 70%),
+    var(--ga-bg);
+}
+.ga-app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, var(--ga-dot) 1.2px, transparent 1.6px) 0 0 / 22px 22px;
+  -webkit-mask-image: linear-gradient(135deg, #000, transparent 55%);
+  mask-image: linear-gradient(135deg, #000, transparent 55%);
+  pointer-events: none;
+}
+.ga-app > * { position: relative; }
+
+/* Merk in de kop: woordmerk plus de naam van de app in de accentkleur. */
+.ga-brand { display: inline-flex; align-items: baseline; gap: 9px; }
+.ga-brand img { height: 17px; display: block; align-self: center; }
+.ga-brand span { font-weight: 500; font-size: 17px; color: var(--ga-accent); }
+
+/* Klein label in hoofdletters. */
+.ga-label {
+  font: 12px var(--ga-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ga-text-muted);
+}
+
+/* Grote titel. */
+.ga-title { font-family: var(--ga-font-display); font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
+.ga-title em { font-style: normal; color: var(--ga-accent); }
+
+/* Kaart. */
+.ga-card { background: var(--ga-surface); border: 1px solid var(--ga-line); border-radius: var(--ga-radius-lg); }
+
+/* Knoppen: altijd een pil. */
+.ga-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: var(--ga-radius-pill);
+  border: 1px solid var(--ga-line);
+  background: var(--ga-surface);
+  color: var(--ga-text);
+  font: 500 16px var(--ga-font-sans);
+  cursor: pointer;
+}
+.ga-btn:focus-visible, .ga-round:focus-visible { outline: 2px solid var(--ga-accent); outline-offset: 3px; }
+.ga-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* De belangrijkste actie van het scherm. Eén per scherm. */
+.ga-btn--primary {
+  border: 0;
+  font-weight: 600;
+  color: var(--ga-on-accent);
+  background: linear-gradient(100deg, var(--ga-accent), var(--ga-accent-2));
+  box-shadow: 0 12px 34px var(--ga-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.ga-btn--ghost { background: none; }
+.ga-btn--quiet { color: var(--ga-text-muted); }
+.ga-btn--xl { min-height: 92px; font-size: 30px; font-weight: 600; letter-spacing: -0.01em; gap: 14px; }
+
+/* Ronde icoonknop. */
+.ga-round {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--ga-line);
+  background: var(--ga-surface);
+  color: var(--ga-text);
+  font: 500 14px var(--ga-font-sans);
+  cursor: pointer;
+}
+
+/* Tegel met een icoon in een cirkel en een label eronder. */
+.ga-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--ga-radius);
+  border: 1px solid var(--ga-line);
+  background: var(--ga-surface);
+  color: var(--ga-text);
+  font: 500 15px var(--ga-font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ga-tool:disabled, .ga-tool.is-dim { opacity: 0.45; }
+.ga-tool__icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ga-surface-2);
+}
+
+/* Chip, bijvoorbeeld voor status. */
+.ga-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--ga-radius-pill);
+  border: 1px solid var(--ga-line);
+  background: var(--ga-surface);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.ga-chip--mono { font: 500 16px var(--ga-font-mono); }
+.ga-chip--ok { color: var(--ga-ok); border-color: color-mix(in srgb, var(--ga-ok) 35%, transparent); }
+
+/* Statusstip. */
+.ga-live { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--ga-text-muted); }
+.ga-live.is-ok { background: var(--ga-ok); box-shadow: 0 0 10px var(--ga-ok); }
+
+/* Voortgang als stippen: <div class="ga-progress"><i class="is-done"></i><i class="is-now"></i><i></i></div> */
+.ga-progress { display: inline-flex; align-items: center; gap: 7px; }
+.ga-progress i { width: 9px; height: 9px; border-radius: 50%; background: var(--ga-surface-2); }
+.ga-progress i.is-done { background: var(--ga-text-muted); }
+.ga-progress i.is-now { width: 13px; height: 13px; background: var(--ga-accent); box-shadow: 0 0 12px var(--ga-accent-glow); }
+
+/* Markering in tekst. */
+.ga-mark { background: color-mix(in srgb, var(--ga-accent) 20%, transparent); color: inherit; padding: 0 5px; border-radius: 6px; }

@@ -6,26 +6,30 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#171b27">
+  <meta name="theme-color" content="#10152a">
   <title>PPT Remote</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="genart/fonts.css">
   <link rel="stylesheet" href="genart/tokens.css">
+  <link rel="stylesheet" href="genart/genart.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app">
+  <div id="app" class="ga-app">
     <header id="topbar">
+      <div id="brand" class="ga-brand"><img src="genart/logo/genart-wordmark-light.svg" alt="GenArt"><span>Remote</span></div>
       <button id="connBtn" class="chip" title="Connection">
         <span id="connDot" class="dot off"></span><span id="connLabel">Not connected</span>
       </button>
       <button id="deckBtn" class="deck" title="Choose presentation"><span id="deckName"></span><span id="deckCaret" class="caret hidden">▾</span></button>
+      <div id="slideDots" class="ga-progress" aria-hidden="true"></div>
       <div id="slideNum" class="slidenum">–</div>
       <button id="recBtn" class="chip recchip hidden" title="Record lecture, save drawings" aria-label="Record lecture, save drawings"><span class="recdot"></span><span id="recLabel" class="mono"></span></button>
       <button id="timer" class="chip mono" title="Tap: start/pause · Hold: reset">00:00</button>
       <div id="clock" class="mono clock"></div>
-      <button id="settingsBtn" class="iconbtn" title="Settings" aria-label="Settings">⚙︎</button>
+      <button id="settingsBtn" class="iconbtn" title="Settings" aria-label="Settings"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M15 6h2M3 14h2M9 14h8"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></svg></button>
     </header>
 
     <main id="main">
@@ -92,18 +96,18 @@
             <span class="tag">Next</span>
           </div>
           <div id="tools">
-            <button id="startBtn" class="tool">▶︎ Start</button>
-            <button id="startHereBtn" class="tool">▶︎ From here</button>
-            <button id="endBtn" class="tool">■ End show</button>
-            <button id="blackBtn" class="tool">◐ Black</button>
-            <button id="gridBtn" class="tool">▦ Slides</button>
-            <button id="soundsBtn" class="tool">♪ Sounds</button>
+            <button id="startBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg></span><span class="tlabel">Start</span></button>
+            <button id="startHereBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3v10M6 2.5v11l8-5.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="tlabel">From here</span></button>
+            <button id="endBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></span><span class="tlabel">End show</span></button>
+            <button id="blackBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"/></svg></span><span class="tlabel">Black</span></button>
+            <button id="gridBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="4" r="1.7"/><circle cx="8" cy="4" r="1.7"/><circle cx="12" cy="4" r="1.7"/><circle cx="4" cy="8" r="1.7"/><circle cx="8" cy="8" r="1.7"/><circle cx="12" cy="8" r="1.7"/><circle cx="4" cy="12" r="1.7"/><circle cx="8" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/></svg></span><span class="tlabel">Slides</span></button>
+            <button id="soundsBtn" class="tool"><span class="ga-tool__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 11.5V3.5l7-1.5v8"/><circle cx="4.3" cy="11.7" r="1.8" fill="currentColor"/><circle cx="11.3" cy="10.2" r="1.8" fill="currentColor"/></svg></span><span class="tlabel">Sounds</span></button>
           </div>
         </div>
       </section>
-      <section id="notesPane">
+      <section id="notesPane" class="ga-card">
         <div id="notesHead">
-          <span>Notes</span>
+          <span class="ga-label">Notes</span>
           <span id="sectionName" class="section"></span>
           <span class="spacer"></span>
           <button id="fontDown" class="iconbtn small" aria-label="Smaller text">A−</button>
@@ -114,17 +118,16 @@
     </main>
 
     <footer id="navbar">
-      <button id="prevBtn" class="nav prev" aria-label="Previous slide">‹ Prev</button>
-      <button id="nextBtn" class="nav next" aria-label="Next slide">Next ›</button>
+      <button id="prevBtn" class="nav prev ga-btn ga-btn--xl ga-btn--quiet" aria-label="Previous slide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Prev</button>
+      <button id="nextBtn" class="nav next ga-btn ga-btn--xl ga-btn--primary" aria-label="Next slide">Next<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </footer>
-    <div id="brandrow"><img src="genart/made-by-genart-light.svg" width="104" height="20" alt="made by GenArt"></div>
   </div>
 
   <!-- Connect screen -->
-  <div id="connectView" class="overlay">
+  <div id="connectView" class="overlay ga-app start">
+    <canvas id="startDots" class="start-hero" aria-hidden="true"></canvas>
     <div class="panel">
-      <div class="brandbar"><img src="genart/genart-wordmark-light.svg" alt="GenArt"></div>
-      <h1>PPT Remote</h1>
+      <h1 class="ga-title">PPT <em>Remote</em></h1>
       <p class="sub">Control PowerPoint on your Mac and read your speaker notes.</p>
       <button id="bleConnectBtn" class="big primary">Connect via Bluetooth</button>
       <p id="bleUnavailable" class="hint hidden">
@@ -132,11 +135,11 @@
         On <b>iPad/iPhone</b>, install the free <b>Bluefy – Web BLE Browser</b> from the App Store and open this page in it:<br>
         <code id="pageUrl"></code>
       </p>
-      <button id="netConnectBtn" class="big hidden">Connect via network</button>
+      <button id="netConnectBtn" class="big ghost hidden">Connect via network</button>
       <p id="netHint" class="hint hidden">Network mode needs this device and the Mac on the same Wi-Fi or hotspot.
         Scan the QR code in the Mac menu bar (PPT Remote icon) to open the network version.</p>
       <p id="connectError" class="error"></p>
-      <p id="connectVersion" class="hint mono"></p>
+      <div class="made"><span>made by<img src="genart/logo/genart-wordmark-light.svg" alt="GenArt"></span><span id="connectVersion"></span></div>
     </div>
   </div>
 
@@ -244,7 +247,7 @@
         <span id="versionInfo" class="hint mono"></span>
         <button id="activityBtn" class="linkbtn">Activity log</button>
       </div>
-      <img class="madeby" src="genart/made-by-genart-light.svg" width="104" height="20" alt="made by GenArt">
+      <img class="madeby" src="genart/logo/made-by-genart-light.svg" width="104" height="20" alt="made by GenArt">
     </div>
   </div>
 
@@ -266,10 +269,12 @@
   <div id="toast" class="toast hidden"></div>
   <div id="alertBar" class="alertbar hidden" role="alert"></div>
 
+  <script src="genart/genart-dots.js"></script>
   <script src="protocol.js"></script>
   <script src="activity.js"></script>
   <script src="storage.js"></script>
   <script src="remotemic.js"></script>
   <script src="app.js"></script>
+  <script src="genart-ui.js"></script>
 </body>
 </html>
