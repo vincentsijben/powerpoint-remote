@@ -1,16 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#111418">
+  <meta name="theme-color" content="#171b27">
   <title>PPT Remote</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="genart/tokens.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -116,11 +117,13 @@
       <button id="prevBtn" class="nav prev" aria-label="Previous slide">‹ Prev</button>
       <button id="nextBtn" class="nav next" aria-label="Next slide">Next ›</button>
     </footer>
+    <div id="brandrow"><img src="genart/made-by-genart-light.svg" width="104" height="20" alt="made by GenArt"></div>
   </div>
 
   <!-- Connect screen -->
   <div id="connectView" class="overlay">
     <div class="panel">
+      <div class="brandbar"><img src="genart/genart-wordmark-light.svg" alt="GenArt"></div>
       <h1>PPT Remote</h1>
       <p class="sub">Control PowerPoint on your Mac and read your speaker notes.</p>
       <button id="bleConnectBtn" class="big primary">Connect via Bluetooth</button>

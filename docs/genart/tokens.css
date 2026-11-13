@@ -1,0 +1,67 @@
+/*
+ * GenArt brand tokens — voorstel v0.1
+ *
+ * Afgeleid uit wat er al bestond: de logokleur (#272F44) en het palet van
+ * genart-invoice (paper, ink, rood, muted) plus IBM Plex Mono.
+ *
+ * Alle variabelen beginnen met --ga- zodat ze nooit botsen met variabelen
+ * die een app zelf al gebruikt (--ink, --card, --primary, ...). Dit bestand
+ * inladen verandert op zichzelf dus niets aan een bestaande app.
+ */
+
+:root {
+  /* Basiskleuren */
+  --ga-navy: #272f44;
+  --ga-ink: #1b1d1f;
+  --ga-paper: #f5f2eb;
+  --ga-white: #ffffff;
+  --ga-red: #d9502b;
+  --ga-stone: #6e6a62;
+  --ga-sand: #d9d4c8;
+
+  /* Rollen (gebruik deze in apps) */
+  --ga-bg: var(--ga-paper);
+  --ga-surface: var(--ga-white);
+  --ga-text: var(--ga-ink);
+  --ga-text-muted: var(--ga-stone);
+  --ga-brand: var(--ga-navy);
+  --ga-on-brand: var(--ga-paper);
+  --ga-accent: var(--ga-red); /* knoppen, markeringen, grote tekst; niet voor lopende tekst */
+  --ga-on-accent: var(--ga-white);
+  --ga-line: var(--ga-sand);
+
+  /* Typografie */
+  --ga-font-sans: "Aptos", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ga-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Vorm */
+  --ga-radius: 10px;
+  --ga-radius-sm: 6px;
+  --ga-space: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ga-bg: #171b27;
+    --ga-surface: #20273a;
+    --ga-text: #f5f2eb;
+    --ga-text-muted: #a8a398;
+    --ga-brand: #f5f2eb;
+    --ga-on-brand: #272f44;
+    --ga-accent: #ec6a45;
+    --ga-on-accent: #171b27;
+    --ga-line: #343c52;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ga-bg: #171b27;
+  --ga-surface: #20273a;
+  --ga-text: #f5f2eb;
+  --ga-text-muted: #a8a398;
+  --ga-brand: #f5f2eb;
+  --ga-on-brand: #272f44;
+  --ga-accent: #ec6a45;
+  --ga-on-accent: #171b27;
+  --ga-line: #343c52;
+}
