@@ -4,6 +4,12 @@
 
 It works with **PowerPoint**, **Keynote** and **PDF** slides, on an iPad / iPhone (in the free Bluefy browser) or an Android phone (in Chrome). On the Mac, a small menu-bar app does the work. It can also **record your lecture** into a video with chapters and subtitles, ready to share.
 
+
+
+https://github.com/user-attachments/assets/4cb51248-27fb-41e3-9765-f704a04684ae
+
+
+
 <p align="center">
   <img src="screenshots/ipad-main.png" width="720" alt="The remote on an iPad: current slide, next slide, speaker notes and big Prev / Next buttons">
 </p>
