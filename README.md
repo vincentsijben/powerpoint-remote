@@ -7,11 +7,7 @@ It works with **PowerPoint**, **Keynote** and **PDF** slides, on an iPad / iPhon
 
 
 
-
-https://github.com/user-attachments/assets/d3833962-a970-4688-8fed-dd1d8e54338a
-
-
-
+https://github.com/user-attachments/assets/08dce078-a32f-4879-a76f-cc96cf028ee1
 
 
 <p align="center">
