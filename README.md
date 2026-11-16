@@ -6,7 +6,11 @@ It works with **PowerPoint**, **Keynote** and **PDF** slides, on an iPad / iPhon
 
 
 
-https://github.com/user-attachments/assets/4cb51248-27fb-41e3-9765-f704a04684ae
+
+
+https://github.com/user-attachments/assets/d3833962-a970-4688-8fed-dd1d8e54338a
+
+
 
 
 
