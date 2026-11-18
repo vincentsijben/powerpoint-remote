@@ -12,11 +12,15 @@ enum MediaDurations {
 
     /// `items`: the media shapes on the slide as PowerPoint lists them (shape index, name), in order.
     /// Completion (main queue) gets shape index → length in ms, for the ones that could be found.
-    static func lookup(pptx: String, slide: Int, items: [(shape: Int, name: String)],
+    static func lookup(pptx fullName: String, slide: Int, items: [(shape: Int, name: String)],
                        _ completion: @escaping ([Int: Int]) -> Void) {
-        guard ["pptx", "pptm", "ppsx", "ppsm"].contains((pptx as NSString).pathExtension.lowercased()),
-              FileManager.default.fileExists(atPath: pptx) else { completion([:]); return }
+        guard ["pptx", "pptm", "ppsx", "ppsm"].contains((fullName as NSString).pathExtension.lowercased()) else { completion([:]); return }
         queue.async {
+            guard let pptx = localFile(fullName) else {
+                Log.write("Media length: no local copy of \(fullName)")
+                DispatchQueue.main.async { completion([:]) }
+                return
+            }
             let mtime = (try? FileManager.default.attributesOfItem(atPath: pptx)[.modificationDate] as? Date)?
                 .map { String($0.timeIntervalSince1970) } ?? ""
             let key = "\(pptx)|\(mtime)|\(slide)"
@@ -35,6 +39,32 @@ enum MediaDurations {
             if !out.isEmpty { Log.write("Media length (slide \(slide)): \(out.values.map { "\($0 / 1000) s" }.joined(separator: ", "))") }
             DispatchQueue.main.async { completion(out) }
         }
+    }
+
+    /// PowerPoint gives a web address for files opened from OneDrive / SharePoint
+    /// ("https://…sharepoint.com/personal/…/Documents/Folder/Deck.pptx"). Look for the synced copy in
+    /// ~/Library/CloudStorage/OneDrive-…: the longest tail of the address that exists there.
+    private static func localFile(_ fullName: String) -> String? {
+        if !fullName.hasPrefix("http://"), !fullName.hasPrefix("https://") {
+            return FileManager.default.fileExists(atPath: fullName) ? fullName : nil
+        }
+        let path = URL(string: fullName)?.path
+            ?? URL(string: fullName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "")?.path
+            ?? fullName
+        let parts = path.split(separator: "/").map(String.init)
+        guard !parts.isEmpty else { return nil }
+        let cloud = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
+        let roots = ((try? FileManager.default.contentsOfDirectory(atPath: cloud.path)) ?? [])
+            .filter { $0.hasPrefix("OneDrive") }
+            .map { cloud.appendingPathComponent($0).path }
+        for start in 0..<parts.count {
+            let tail = parts[start...].joined(separator: "/")
+            for root in roots {
+                let candidate = "\(root)/\(tail)"
+                if FileManager.default.fileExists(atPath: candidate) { return candidate }
+            }
+        }
+        return nil
     }
 
     private struct Pic {
