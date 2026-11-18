@@ -27,7 +27,9 @@ rm -f "${BINS[@]}"
 
 cp Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-cp -R Resources/Sounds "$APP/Contents/Resources/"
+# Soundboard: every audio file in assets/sounds becomes a built-in sound.
+mkdir -p "$APP/Contents/Resources/Sounds"
+cp -R ../assets/sounds/. "$APP/Contents/Resources/Sounds/"
 cp -R ../docs/. "$APP/Contents/Resources/web/"
 
 # Ad-hoc signature so macOS can remember the Bluetooth / Automation / Accessibility permissions.

@@ -32,6 +32,7 @@ open "mac-helper/build/PPT Remote.app"
 - If a permission seems stuck: `tccutil reset BluetoothAlways local.pptremote.helper` (or `AppleEvents`, `Accessibility`, `Microphone`, `ScreenCapture`) and start the app again.
 - Subtitles use `SpeechAnalyzer`, which needs the macOS 26 SDK (Swift 6.2 or newer). With an older toolchain the app still builds, without subtitles.
 - The build copies [docs/](docs/) into the app, so the helper can also serve the web app itself (network mode, *Open Remote in Browser*).
+- The build also copies [assets/sounds/](assets/sounds/) into the app. Every audio file there (mp3, m4a, wav, aif, aac, caf) becomes a soundboard button, named after the file (`sad-violin.mp3` → *Sad violin*, icon 🔊). To give a sound its own name or icon, add it to `builtIn` in [SoundBoard.swift](mac-helper/Sources/SoundBoard.swift).
 
 ## The web app
 
@@ -66,9 +67,10 @@ To host your own copy: push this repository to GitHub, then *Settings › Pages 
 | [mac-helper/Sources/RemoteMic.swift](mac-helper/Sources/RemoteMic.swift), [WebMOpus.swift](mac-helper/Sources/WebMOpus.swift) | Receiving and decoding the remote's microphone recording (WebM / Opus) |
 | [mac-helper/Sources/Chapters.swift](mac-helper/Sources/Chapters.swift), [Subtitles.swift](mac-helper/Sources/Subtitles.swift) | Chapter and subtitle tracks in the MP4; on-device transcription |
 | [mac-helper/Sources/BLEServer.swift](mac-helper/Sources/BLEServer.swift), [HTTPServer.swift](mac-helper/Sources/HTTPServer.swift), [Framing.swift](mac-helper/Sources/Framing.swift) | Bluetooth LE GATT server (one session per device) and the HTTP fallback |
-| [mac-helper/Sources/SoundBoard.swift](mac-helper/Sources/SoundBoard.swift) | Soundboard (built-in sounds plus the user's Sounds folder) |
+| [mac-helper/Sources/SoundBoard.swift](mac-helper/Sources/SoundBoard.swift) | Soundboard (sounds from assets/sounds plus the user's Sounds folder) |
 | [mac-helper/build.sh](mac-helper/build.sh) | Builds `PPT Remote.app` with `swiftc` |
-| [mac-helper/Resources/](mac-helper/Resources/) | App icon and the built-in sounds |
+| [mac-helper/Resources/](mac-helper/Resources/) | App icon |
+| [assets/sounds/](assets/sounds/) | Built-in soundboard sounds; the build copies every audio file here into the app |
 | [tools/](tools/) | `make_sounds.py` synthesises the built-in sounds (needs numpy); `make_icon.swift` draws the app and web icons |
 | [tests/](tests/) | Protocol tests, including a Swift ↔ JavaScript framing check |
 | [screenshots/](screenshots/) | Images used in the README |

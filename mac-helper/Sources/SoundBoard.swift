@@ -49,19 +49,40 @@ final class SoundBoard {
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.reload() }
     }
 
+    /// Audio files in a folder, sorted by name.
+    private static func audioFiles(in dir: URL?) -> [URL] {
+        guard let dir else { return [] }
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        return files
+            .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// "sad-violin" / "sad_violin" → "Sad violin"
+    private static func displayName(_ url: URL) -> String {
+        let s = url.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        return s.prefix(1).uppercased() + s.dropFirst()
+    }
+
     func reload() {
         var list: [Sound] = []
-        let bundleDir = Bundle.main.resourceURL?.appendingPathComponent("Sounds")
+        // Built-in sounds: everything copied from assets/sounds into the app bundle.
+        // Known files get their own name and icon; any other file is named after the file.
+        let bundled = Self.audioFiles(in: Bundle.main.resourceURL?.appendingPathComponent("Sounds"))
+        var remaining = bundled
         for b in Self.builtIn {
-            if let url = bundleDir?.appendingPathComponent("\(b.file).m4a"), FileManager.default.fileExists(atPath: url.path) {
-                list.append(Sound(id: "b:\(b.file)", name: b.name, icon: b.icon, url: url))
+            if let i = remaining.firstIndex(where: { $0.deletingPathExtension().lastPathComponent == b.file }) {
+                list.append(Sound(id: "b:\(b.file)", name: b.name, icon: b.icon, url: remaining.remove(at: i)))
             }
         }
-        let files = (try? FileManager.default.contentsOfDirectory(at: Self.userFolder, includingPropertiesForKeys: nil)) ?? []
-        for url in files.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending })
-        where Self.audioExtensions.contains(url.pathExtension.lowercased()) {
-            let name = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_", with: " ")
-            list.append(Sound(id: "u:\(url.lastPathComponent)", name: name, icon: "🔊", url: url))
+        for url in remaining {
+            list.append(Sound(id: "b:\(url.deletingPathExtension().lastPathComponent)", name: Self.displayName(url), icon: "🔊", url: url))
+        }
+        // The user's own Sounds folder (menu › Open Sounds Folder…), picked up without a rebuild.
+        for url in Self.audioFiles(in: Self.userFolder) {
+            list.append(Sound(id: "u:\(url.lastPathComponent)", name: Self.displayName(url), icon: "🔊", url: url))
         }
         let key = SHA256.hash(data: Data(list.map { "\($0.id)|\($0.name)" }.joined(separator: "\n").utf8))
             .prefix(4).map { String(format: "%02x", $0) }.joined()

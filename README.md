@@ -105,9 +105,11 @@ When a slide has a video or sound, controls appear on the slide: play / pause, b
 
 ### Soundboard
 
-**♪ Sounds** plays applause, a drum roll, correct, wrong, ta-da, a sad trombone, crickets or a gong on the **Mac's speakers**, so the whole room hears it. **■ Stop** stops it, and the slider sets the volume.
+**♪ Sounds** plays applause, a drum roll, correct, wrong, ta-da, a sad trombone, a sad violin, crickets or a gong on the **Mac's speakers**, so the whole room hears it. **■ Stop** stops it, and the slider sets the volume.
 
 **Your own sounds:** Mac menu › *Open Sounds Folder…*, then drop mp3, m4a or wav files in it. They appear on the soundboard within a few seconds, named after the file.
+
+**Adding sounds to the app itself** (if you build it yourself): put mp3, m4a or wav files in [assets/sounds/](assets/sounds/) and run `./mac-helper/build.sh`. Every audio file there becomes a soundboard button, named after the file (`sad-violin.mp3` → *Sad violin*). See [DEVELOPMENT.md](DEVELOPMENT.md) for giving a sound its own icon.
 
 <p align="center"><img src="screenshots/ipad-sounds.png" width="600" alt="The soundboard"></p>
 

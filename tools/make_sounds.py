@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthesises the built-in soundboard sounds (no recordings, so no licensing issues).
 
-Usage: python3 tools/make_sounds.py   (needs numpy; writes mac-helper/Resources/Sounds/*.m4a via afconvert)
+Usage: python3 tools/make_sounds.py   (needs numpy; writes assets/sounds/*.m4a via afconvert)
 """
 import os
 import subprocess
@@ -11,7 +11,7 @@ import wave
 import numpy as np
 
 SR = 44100
-OUT = os.path.join(os.path.dirname(__file__), "..", "mac-helper", "Resources", "Sounds")
+OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "sounds")
 rng = np.random.default_rng(7)
 
 
