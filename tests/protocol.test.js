@@ -1,4 +1,4 @@
-// Run: node --test tests/
+// Run: node --test tests/*.test.js
 const test = require('node:test');
 const assert = require('node:assert');
 const { FrameAssembler, buildFrames, parseImagePayload, PPT_BLE } = require('../docs/protocol.js');
