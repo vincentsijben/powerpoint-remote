@@ -40,22 +40,36 @@ enum Chapters {
     static func writeMP4(video: URL, audio: URL?, chapters: [Chapter], subtitles: [SubtitleCue] = [], language: String? = nil,
                          to out: URL) throws {
         let vAsset = AVURLAsset(url: video)
-        guard let vTrack = vAsset.tracks(withMediaType: .video).first else { throw err("no video") }
-        let duration = vTrack.timeRange.end
         let aAsset = audio.map { AVURLAsset(url: $0) }
-        let aTrack = aAsset?.tracks(withMediaType: .audio).first
+        // Load the track details first (AVFoundation only offers this asynchronously now).
+        let (vLoaded, aLoaded) = try runBlocking { () async throws -> ((AVAssetTrack, CMTimeRange, CMFormatDescription?)?, (AVAssetTrack, CMFormatDescription?)?) in
+            var v: (AVAssetTrack, CMTimeRange, CMFormatDescription?)?
+            if let t = try await vAsset.loadTracks(withMediaType: .video).first {
+                let (range, formats) = try await t.load(.timeRange, .formatDescriptions)
+                v = (t, range, formats.first)
+            }
+            var a: (AVAssetTrack, CMFormatDescription?)?
+            if let aAsset, let t = try await aAsset.loadTracks(withMediaType: .audio).first {
+                a = (t, try await t.load(.formatDescriptions).first)
+            }
+            return (v, a)
+        }
+        guard let (vTrack, vRange, vFormat) = vLoaded else { throw err("no video") }
+        guard let vFormat else { throw err("no video format") }
+        let duration = vRange.end
+        let aTrack = aLoaded?.0
+        let aFormat = aLoaded?.1
 
         let writer = try AVAssetWriter(outputURL: out, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
-        let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: nil,
-                                     sourceFormatHint: (vTrack.formatDescriptions.first as! CMFormatDescription))
+        let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: vFormat)
         vIn.expectsMediaDataInRealTime = false
         guard writer.canAdd(vIn) else { throw err("can't add video") }
         writer.add(vIn)
         var aIn: AVAssetWriterInput?
-        if let aTrack {
-            let i = AVAssetWriterInput(mediaType: .audio, outputSettings: nil,
-                                       sourceFormatHint: (aTrack.formatDescriptions.first as! CMFormatDescription))
+        if aTrack != nil {
+            guard let aFormat else { throw err("no audio format") }
+            let i = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: aFormat)
             i.expectsMediaDataInRealTime = false
             guard writer.canAdd(i) else { throw err("can't add audio") }
             writer.add(i)
@@ -289,4 +303,21 @@ enum Chapters {
     private static func err(_ s: String) -> NSError {
         NSError(domain: "PPTRemote", code: 3, userInfo: [NSLocalizedDescriptionKey: s])
     }
+}
+
+/// Runs async work (AVFoundation's `load…` calls) from synchronous code and waits for the result.
+/// Only call this from a background dispatch queue, never from the main thread or from inside a Task.
+func runBlocking<T>(_ work: @escaping () async throws -> T) throws -> T {
+    let box = BlockingResult<T>()
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        do { box.result = .success(try await work()) } catch { box.result = .failure(error) }
+        sem.signal()
+    }
+    sem.wait()
+    return try box.result!.get()
+}
+
+private final class BlockingResult<T>: @unchecked Sendable {
+    var result: Result<T, Error>?
 }

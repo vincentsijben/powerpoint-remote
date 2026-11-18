@@ -609,10 +609,11 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         let out = Self.uniqueURL(in: folder, name: Self.fileName(title: title, date: startedAt))
 
         // One chapter per slide (and for the whiteboard / Mac screen), copied without re-encoding.
-        let length = AVURLAsset(url: video).duration.seconds
+        let length = (try? runBlocking { try await AVURLAsset(url: video).load(.duration) })?.seconds ?? 0
         let chapters = Chapters.tidy(marks, duration: length)
+        let mixedAudio = hasAudio ? mixed : nil
         do {
-            try Chapters.writeMP4(video: video, audio: hasAudio ? mixed : nil, chapters: chapters, to: out)
+            try Chapters.writeMP4(video: video, audio: mixedAudio, chapters: chapters, to: out)
             if chapters.count >= 2 {
                 let txt = out.deletingPathExtension().appendingPathExtension("chapters.txt")
                 try? Chapters.text(chapters).write(to: txt, atomically: true, encoding: .utf8)
@@ -639,18 +640,23 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
         let comp = AVMutableComposition()
         do {
-            let vAsset = AVURLAsset(url: video)
-            guard let vTrack = vAsset.tracks(withMediaType: .video).first,
+            let (vTrack, vRange, audioPart) = try runBlocking { () async throws -> (AVAssetTrack?, CMTimeRange, (AVAssetTrack, CMTimeRange)?) in
+                guard let v = try await AVURLAsset(url: video).loadTracks(withMediaType: .video).first else { return (nil, .zero, nil) }
+                let vr = try await v.load(.timeRange)
+                var a: (AVAssetTrack, CMTimeRange)?
+                if let mixedAudio, let t = try await AVURLAsset(url: mixedAudio).loadTracks(withMediaType: .audio).first {
+                    a = (t, try await t.load(.timeRange))
+                }
+                return (v, vr, a)
+            }
+            guard let vTrack,
                   let cv = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
                 throw NSError(domain: "PPTRemote", code: 2, userInfo: [NSLocalizedDescriptionKey: "no video track"])
             }
-            try cv.insertTimeRange(vTrack.timeRange, of: vTrack, at: vTrack.timeRange.start)
-            if hasAudio {
-                let aAsset = AVURLAsset(url: mixed)
-                if let aTrack = aAsset.tracks(withMediaType: .audio).first,
-                   let ca = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                    try ca.insertTimeRange(aTrack.timeRange, of: aTrack, at: .zero)
-                }
+            try cv.insertTimeRange(vRange, of: vTrack, at: vRange.start)
+            if let (aTrack, aRange) = audioPart,
+               let ca = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                try ca.insertTimeRange(aRange, of: aTrack, at: .zero)
             }
         } catch {
             finished(nil, error: "Saving failed: \(error.localizedDescription)", done: done)
@@ -706,7 +712,12 @@ final class LectureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 // Put the subtitles in the video too (copying, no re-encoding), if it's still where we saved it.
                 if !cues.isEmpty, FileManager.default.fileExists(atPath: out.path) {
                     let tmp = dir.appendingPathComponent("with-subtitles.mp4")
-                    try Chapters.writeMP4(video: video, audio: audio, chapters: chapters, subtitles: cues, language: lang, to: tmp)
+                    // writeMP4 waits for its work, so run it on a dispatch queue rather than inside this Task.
+                    try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                        DispatchQueue.global(qos: .utility).async {
+                            c.resume(with: Result { try Chapters.writeMP4(video: video, audio: audio, chapters: chapters, subtitles: cues, language: lang, to: tmp) })
+                        }
+                    }
                     _ = try FileManager.default.replaceItemAt(out, withItemAt: tmp)
                 }
                 Log.write("Subtitles (\(name)): \(cues.count) lines, \(words.count) words in \(Int(Date().timeIntervalSince(started))) s")
