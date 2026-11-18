@@ -285,6 +285,12 @@ html.drawmode, html.drawmode * { -webkit-user-select: none !important; user-sele
 .mbtn { min-width: 44px; height: 38px; border-radius: var(--ga-radius-pill); border: none; background: rgba(255,255,255,.12); color: #fff; font-size: 15px; font-weight: 600; }
 .mbtn.play { background: var(--text); color: var(--bg); min-width: 54px; }
 .minfo { padding: 0 8px; font-variant-numeric: tabular-nums; color: #dfe6ee; font-size: 14px; white-space: nowrap; }
+.mprog, .mleft { display: none; }
+.mediabar.hasdur { width: 100%; }
+.mediabar.hasdur .minfo { padding: 0 2px 0 8px; }
+.mediabar.hasdur .mprog { display: block; flex: 1; min-width: 40px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
+.mediabar.hasdur .mleft { display: inline; padding: 0 8px 0 2px; font-variant-numeric: tabular-nums; color: #dfe6ee; font-size: 14px; white-space: nowrap; }
+.mfill { height: 100%; width: 0; background: var(--text); }
 
 /* Formatted notes */
 .notes .np { position: relative; margin: 0 0 .35em; white-space: pre-wrap; }
@@ -345,6 +351,7 @@ html.drawmode, html.drawmode * { -webkit-user-select: none !important; user-sele
   .mediabar { padding: 4px; gap: 4px; }
   .mbtn { min-width: 34px; height: 28px; font-size: 13px; }
   .mbtn.play { min-width: 40px; }
+  .minfo, .mediabar.hasdur .mleft { font-size: 12px; }
   .minfo { font-size: 12px; padding: 0 4px; }
 }
 

@@ -67,6 +67,7 @@ To host your own copy: push this repository to GitHub, then *Settings › Pages 
 | [mac-helper/Sources/RemoteMic.swift](mac-helper/Sources/RemoteMic.swift), [WebMOpus.swift](mac-helper/Sources/WebMOpus.swift) | Receiving and decoding the remote's microphone recording (WebM / Opus) |
 | [mac-helper/Sources/Chapters.swift](mac-helper/Sources/Chapters.swift), [Subtitles.swift](mac-helper/Sources/Subtitles.swift) | Chapter and subtitle tracks in the MP4; on-device transcription |
 | [mac-helper/Sources/BLEServer.swift](mac-helper/Sources/BLEServer.swift), [HTTPServer.swift](mac-helper/Sources/HTTPServer.swift), [Framing.swift](mac-helper/Sources/Framing.swift) | Bluetooth LE GATT server (one session per device) and the HTTP fallback |
+| [mac-helper/Sources/MediaDurations.swift](mac-helper/Sources/MediaDurations.swift) | Length of the videos / sounds on a slide, read from the saved .pptx (PowerPoint's AppleScript only reports the position) |
 | [mac-helper/Sources/SoundBoard.swift](mac-helper/Sources/SoundBoard.swift) | Soundboard (sounds from assets/sounds plus the user's Sounds folder) |
 | [mac-helper/build.sh](mac-helper/build.sh) | Builds `PPT Remote.app` with `swiftc` |
 | [mac-helper/Resources/](mac-helper/Resources/) | App icon |

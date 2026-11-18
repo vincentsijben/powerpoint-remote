@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1065,9 +1065,17 @@ const App = {
         mk('', '⟲', 'From the start', () => { this.send(`media seek ${m.k} 0`); this.send(`media play ${m.k}`); });
         mk('', '−10', 'Back 10 seconds', () => this.send(`media rel ${m.k} -10000`));
         mk('', '+10', 'Forward 10 seconds', () => this.send(`media rel ${m.k} 10000`));
+        // Progress (only when the Mac knows the length): elapsed / total, a bar, time left.
         const info = document.createElement('span');
         info.className = 'minfo';
         bar.appendChild(info);
+        const prog = document.createElement('div');
+        prog.className = 'mprog';
+        prog.innerHTML = '<div class="mfill"></div>';
+        bar.appendChild(prog);
+        const left = document.createElement('span');
+        left.className = 'mleft';
+        bar.appendChild(left);
         box.appendChild(bar);
       }
     }
@@ -1079,11 +1087,19 @@ const App = {
     for (const bar of $('mediaBars').children) {
       const m = this.media.find((x) => String(x.k) === bar.dataset.k);
       if (!m) continue;
-      const pos = m.pos + (m.st === 'playing' ? Date.now() - m.at : 0);
+      const dur = m.dur > 0 ? m.dur : 0;
+      let pos = m.pos + (m.st === 'playing' ? Date.now() - m.at : 0);
+      if (dur) pos = Math.min(Math.max(pos, 0), dur);
       bar.querySelector('.play').textContent = m.st === 'playing' ? '❚❚' : '▶︎';
-      const sec = Math.floor(pos / 1000);
+      const fmt = (ms) => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
       const label = m.kind === 'sound' ? 'Audio' : 'Video';
-      bar.querySelector('.minfo').textContent = `${label} ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      bar.classList.toggle('hasdur', !!dur);
+      bar.querySelector('.minfo').textContent = dur ? `${fmt(pos)} / ${fmt(dur)}` : `${label} ${fmt(pos)}`;
+      if (dur) {
+        bar.querySelector('.mfill').style.width = `${(pos / dur) * 100}%`;
+        // Round the time left up, so it reaches 0:00 exactly at the end.
+        bar.querySelector('.mleft').textContent = `−${fmt(Math.ceil((dur - pos) / 1000) * 1000)}`;
+      }
     }
   },
 

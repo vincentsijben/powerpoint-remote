@@ -101,7 +101,7 @@ Open your presentation on the Mac, in PowerPoint or Keynote, or a PDF via the me
 
 ### Videos in your slides
 
-When a slide has a video or sound, controls appear on the slide: play / pause, back to the start, and −10 / +10 seconds.
+When a slide has a video or sound, controls appear on the slide: play / pause, back to the start, and −10 / +10 seconds. A progress bar shows how far the video is, with the time played, the total length and the time left (`1:23 / 4:10 ··· −2:47`). The video itself only plays on the Mac; the remote just shows where it is, so this costs hardly any Bluetooth data. The length is read from the saved .pptx, so a presentation that was never saved shows only the time played.
 
 ### Soundboard
 

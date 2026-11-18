@@ -87,6 +87,8 @@ final class Hub {
     /// Video/audio on the current slide (only during a slide show).
     private(set) var media: [MediaItem] = []
     private(set) var mediaStatus: [Int: MediaStatus] = [:]
+    /// Length in ms per media shape (read from the .pptx; PowerPoint doesn't report it).
+    private(set) var mediaDuration: [Int: Int] = [:]
     private var mediaSlide = -1
     private var mediaBusy = false
     private var lastMediaPoll = Date.distantPast
@@ -225,6 +227,7 @@ final class Hub {
             mediaSlide = -1
             media = []
             mediaStatus = [:]
+            mediaDuration = [:]
             if st.showing { refreshMedia() }
         }
         overlay.update(showing: st.showing, black: st.black, bounds: st.showBounds, slide: st.index)
@@ -336,6 +339,14 @@ final class Hub {
                 self.bump()
             }
             self.lastMediaPoll = .distantPast
+            if !items.isEmpty, self.app.kind == "powerpoint" {
+                let path = self.state.fullName
+                MediaDurations.lookup(pptx: path, slide: slide, items: items.map { ($0.shape, $0.name) }) { [weak self] d in
+                    guard let self, !d.isEmpty, self.state.index == slide, self.state.fullName == path else { return }
+                    self.mediaDuration = d
+                    self.bump()
+                }
+            }
         }
     }
 
@@ -556,6 +567,7 @@ final class Hub {
         mediaSlide = -1
         media = []
         mediaStatus = [:]
+        mediaDuration = [:]
     }
 
     /// Pointer coordinates arrive as integers 0…10000 relative to the slide.
@@ -715,7 +727,9 @@ final class Hub {
         if !media.isEmpty, state.showing {
             obj["media"] = media.map { m -> [String: Any] in
                 let st = mediaStatus[m.shape]
-                return ["k": m.shape, "name": m.name, "kind": m.kind, "st": st?.state ?? "stopped", "pos": st?.position ?? 0]
+                var o: [String: Any] = ["k": m.shape, "name": m.name, "kind": m.kind, "st": st?.state ?? "stopped", "pos": st?.position ?? 0]
+                if let d = mediaDuration[m.shape] { o["dur"] = d }
+                return o
             }
         }
         if includeList { obj["plist"] = presentationList() }
