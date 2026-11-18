@@ -1,7 +1,7 @@
 /* PPT Remote – web app for tablets and phones. Talks to the Mac helper over Bluetooth (Web Bluetooth) or HTTP. */
 'use strict';
 
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.16.1';
 
 function clearSelection() {
   const sel = window.getSelection && window.getSelection();
@@ -1071,7 +1071,46 @@ const App = {
         bar.appendChild(info);
         const prog = document.createElement('div');
         prog.className = 'mprog';
-        prog.innerHTML = '<div class="mfill"></div>';
+        prog.title = 'Tap or drag to jump';
+        prog.innerHTML = '<div class="mtrack"><div class="mfill"></div></div>';
+        // Tap or drag on the bar: the bar follows the finger, the video jumps when it is let go.
+        const at = (e) => {
+          const r = prog.getBoundingClientRect();
+          return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+        };
+        // The drag position lives on the bar: state updates from the Mac replace this.media meanwhile.
+        prog.addEventListener('pointerdown', (e) => {
+          const cur = this.media.find((x) => x.k === m.k);
+          if (!cur || !(cur.dur > 0)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          prog.setPointerCapture(e.pointerId);
+          bar.drag = at(e);
+          this.tickMedia();
+        });
+        prog.addEventListener('pointermove', (e) => {
+          if (bar.drag == null) return;
+          e.stopPropagation();
+          bar.drag = at(e);
+          this.tickMedia();
+        });
+        const release = (e, jump) => {
+          if (bar.drag == null) return;
+          e.stopPropagation();
+          const frac = at(e);
+          bar.drag = null;
+          const cur = this.media.find((x) => x.k === m.k);
+          if (jump && cur && cur.dur > 0) {
+            const ms = Math.round(frac * cur.dur);
+            this.send(`media seek ${m.k} ${ms}`);
+            cur.pos = ms; // show the new spot right away; the Mac's next status confirms it
+            cur.at = Date.now();
+          }
+          this.tickMedia();
+        };
+        prog.addEventListener('pointerup', (e) => release(e, true));
+        prog.addEventListener('pointercancel', (e) => release(e, false));
+        prog.addEventListener('click', (e) => e.stopPropagation());
         bar.appendChild(prog);
         const left = document.createElement('span');
         left.className = 'mleft';
@@ -1090,6 +1129,7 @@ const App = {
       const dur = m.dur > 0 ? m.dur : 0;
       let pos = m.pos + (m.st === 'playing' ? Date.now() - m.at : 0);
       if (dur) pos = Math.min(Math.max(pos, 0), dur);
+      if (dur && bar.drag != null) pos = bar.drag * dur;
       bar.querySelector('.play').textContent = m.st === 'playing' ? '❚❚' : '▶︎';
       const fmt = (ms) => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
       const label = m.kind === 'sound' ? 'Audio' : 'Video';
