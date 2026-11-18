@@ -1,2 +1,4 @@
 mac-helper/build/
 .DS_Store
+# Local secrets written by `elevenlabs onboard`
+/.env.local
